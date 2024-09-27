@@ -1,0 +1,62 @@
+syntax = "proto3";
+package server;
+option go_package = "github.com/Amr-Shams/Blocker/server";
+
+message Block {
+  int64 timestamp = 1;
+  bytes hash = 2;
+  repeated Transaction transactions = 3;
+  bytes prev_hash = 4;
+  int32 nonce = 5;
+}
+
+message Transaction {
+  bytes id = 1;
+  repeated TXInput vin = 2;
+  repeated TXOutput vout = 3;
+}
+
+message TXInput {
+  bytes txid = 1;
+  int32 vout = 2;
+  bytes signature = 3;
+  bytes pub_key = 4;
+}
+
+message TXOutput {
+  int32 value = 1;
+  bytes pub_key_hash = 2;
+}
+
+message TXOutputs {
+  repeated TXOutput outputs = 1;
+}
+
+message Response {
+  repeated Block blocks = 1;
+  string status = 2;
+  bool success = 3;
+}
+
+message Request {
+  int32 node_id = 1;
+  optional string address = 2;
+}
+message Empty {}
+
+message HelloResponse {
+  int32 node_id = 1;
+  string address = 2;
+  string status = 3;
+  string version = 4;
+  repeated Block blocks = 5;
+  repeated string peers = 6;
+}
+
+service BlockchainService {
+  rpc GetBlockChain (Empty) returns (Response);
+  rpc BroadcastBlock (Transaction) returns (Response);
+  rpc CheckStatus (Request) returns (Response);
+  rpc AddBlock (Transaction) returns (Response);
+  rpc Hello (Request) returns (HelloResponse);
+}

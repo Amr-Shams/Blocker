@@ -1,0 +1,30 @@
+version: "3.8" # Specify the version
+
+services:
+  blocker1:
+    build: .
+    ports:
+      - "5001:5001"
+    command: ["tail", "-f", "/dev/null"] # Keep the container running
+    networks:
+      - blocker_network
+
+  blocker2:
+    build: .
+    ports:
+      - "5002:5002"
+    command: ["tail", "-f", "/dev/null"] # Keep the container running
+    networks:
+      - blocker_network
+
+  blocker3:
+    build: .
+    ports:
+      - "5003:5003"
+    command: ["tail", "-f", "/dev/null"] # Keep the container running
+    networks:
+      - blocker_network
+
+networks:
+  blocker_network:
+    driver: bridge
