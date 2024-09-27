@@ -1,0 +1,6 @@
+# ignore the tmp directory
+./tmp
+# ignore eveything inside ./tmp 
+./tmp/*
+tmp 
+*.data 
