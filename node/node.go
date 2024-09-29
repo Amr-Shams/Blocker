@@ -2,6 +2,8 @@ package node
 
 import (
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,8 +58,8 @@ func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Respons
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	if s.GetBlockchain() == nil || s.GetBlockchain().Database == nil {
-		s.Blockchain.Database.Close()
+	if s.GetBlockchain() != nil && s.GetBlockchain().Database != nil {
+		s.GetBlockchain().Database.Close()
 	}
 
 	bc := blockchain.ContinueBlockChain(s.Address)
@@ -108,24 +110,27 @@ func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Respons
 }
 
 func MergeBlockChain(blockchain1, blockchain2 []*pb.Block) []*pb.Block {
-	blocks := make(map[string]*pb.Block)
-	for _, block := range blockchain1 {
-		blocks[string(block.Hash)] = block
-	}
+	var mergedBlockChain []*pb.Block
+	addedBlocks := make(map[string]bool)
 	for _, block := range blockchain2 {
-		if _, ok := blocks[string(block.Hash)]; ok {
-			if block.Timestamp > blocks[string(block.Hash)].Timestamp {
-				blocks[string(block.Hash)] = block
-			}
+		mergedBlockChain = append(mergedBlockChain, block)
+		addedBlocks[string(block.Hash)] = true
+	}
+	for _, block := range blockchain1 {
+		if _, ok := addedBlocks[string(block.Hash)]; !ok {
+			mergedBlockChain = append(mergedBlockChain, block)
 		} else {
-			blocks[string(block.Hash)] = block
+			mergedBlockChain = append(mergedBlockChain, resolveConflicts(block, block))
 		}
 	}
-	var mergedBlockChain []*pb.Block
-	for _, block := range blocks {
-		mergedBlockChain = append(mergedBlockChain, block)
-	}
 	return mergedBlockChain
+}
+func resolveConflicts(block1, block2 *pb.Block) *pb.Block {
+	if block1.Timestamp > block2.Timestamp {
+		return block1
+	} else {
+		return block2
+	}
 }
 
 func (s *BaseNode) BroadcastBlock(ctx context.Context, in *pb.Transaction) (*pb.Response, error) {
@@ -135,18 +140,28 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, in *pb.Transaction) (*pb.
 	}()
 	var wg sync.WaitGroup
 	for _, peer := range s.Peers {
-		if peer.GetAddress() == s.GetAddress() {
-			continue
-		}
 		wg.Add(1)
 		go func(peer *BaseNode) {
 			defer wg.Done()
+			fmt.Printf("Sending block to %s\n", peer.GetAddress())
 			conn, err := grpc.NewClient(peer.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-			util.Handle(err)
+			if err != nil {
+				fmt.Printf("Failed to connect to %s: %v\n", peer.GetAddress(), err)
+				return
+			}
 			defer conn.Close()
 			client := pb.NewBlockchainServiceClient(conn)
-			_, err = client.AddBlock(ctx, in)
-			util.Handle(err)
+			added, err := client.AddBlock(ctx, in)
+			if err != nil {
+				fmt.Printf("Failed to send block to %s: %v\n", peer.GetAddress(), err)
+				return
+			}
+			if added.Success {
+				fmt.Printf("Block sent to %s\n", peer.GetAddress())
+				peer.BroadcastBlock(ctx, in)
+			} else {
+				fmt.Printf("Block not sent to %s\n", peer.GetAddress())
+			}
 		}(peer)
 	}
 	wg.Wait()
@@ -165,13 +180,20 @@ func (s *BaseNode) GetBlockchain() *blockchain.BlockChain {
 	return s.Blockchain
 }
 func (s *BaseNode) SetBlockchain(bc *blockchain.BlockChain) {
+	fmt.Printf("Setting blockchain for %s\n", s.Address)
 	s.Blockchain = bc
+
+}
+func (s *BaseNode) GetPort() string {
+	return s.Address[strings.LastIndex(s.Address, ":")+1:]
 }
 func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Response, error) {
 	s.Status = StateMining
 	defer func() {
 		s.Status = StateIdle
 	}()
+	fmt.Println("Received new block")
+
 	Vin := []blockchain.TXInput{}
 	for _, input := range in.Vin {
 		Vin = append(Vin, blockchain.TXInput{
@@ -193,16 +215,17 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Respon
 		Vin:  Vin,
 		Vout: Vout,
 	}
-	if s.Blockchain == nil || s.Blockchain.Database == nil {
-		s.Blockchain = blockchain.ContinueBlockChain(s.Address)
+
+	if s.GetBlockchain() == nil || s.GetBlockchain().Database == nil {
+		s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
 	}
-	s.Blockchain.Print()
-	_, added := s.Blockchain.AddBlock([]*blockchain.Transaction{tsx})
+	block, added := s.GetBlockchain().AddBlock([]*blockchain.Transaction{tsx})
 	if !added {
 		s.Status = StateConnected
 		return &pb.Response{Status: stateName[s.Status], Success: false}, nil
 	}
-	s.BroadcastBlock(ctx, in)
+
+	fmt.Printf("Added new block with hash: %x\n", block.Hash)
 	return &pb.Response{Status: stateName[s.Status], Success: true}, nil
 }
 
@@ -240,7 +263,7 @@ func NewFullNode() *FullNode {
 		BaseNode: BaseNode{
 			ID:         int32(id),
 			Address:    address,
-			Blockchain: nil,
+			Blockchain: blockchain.ContinueBlockChain(address),
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
 		},
@@ -254,7 +277,7 @@ func NewWalletNode() *WalletNode {
 		BaseNode: BaseNode{
 			ID:         int32(id),
 			Address:    address,
-			Blockchain: nil,
+			Blockchain: blockchain.ContinueBlockChain(address),
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
 		},
@@ -326,7 +349,6 @@ func (n *BaseNode) FetchAndMergeBlockchains() []*pb.Block {
 	}
 	wg.Wait()
 	close(fetchedBlocks)
-	fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
 	return mergedBlockChain
 }
 
@@ -334,7 +356,9 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 	if n.Blockchain == nil || n.Blockchain.Database == nil {
 		n.Blockchain = blockchain.ContinueBlockChain(n.Address)
 	}
-	for _, b := range mergedBlockChain {
+	var updateUtxo = false
+ for i := len(mergedBlockChain) - 1; i >= 0; i-- {
+        b := mergedBlockChain[i]
 		tsx := []*blockchain.Transaction{}
 		for _, tx := range b.Transactions {
 			Vin := []blockchain.TXInput{}
@@ -370,7 +394,13 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 		if !proof.Validate() {
 			continue
 		}
-		n.Blockchain.AddEnireBlock(block)
+		if added := n.Blockchain.AddEnireBlock(block); added {
+			updateUtxo = true
+		}
+	}
+	if updateUtxo {
+		UTXO := blockchain.UTXOSet{n.Blockchain}
+		UTXO.Reindex()
 	}
 }
 
@@ -378,16 +408,18 @@ func StartFullNodeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "run1",
 		Short:   "Start a full node",
-		Long:    " a full node that can mine blocks and validate transactions",
+		Long:    "A full node that can mine blocks and validate transactions",
 		Example: "node print",
 		Args:    cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			n := NewFullNode()
-			// n.DiscoverPeers()
+			n.DiscoverPeers()
 			fmt.Printf("Node is connected to %d peers\n", len(n.GetPeers()))
+
 			conn, err := grpc.NewClient(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 			util.Handle(err)
 			defer conn.Close()
+
 			n.SetStatus(StateConnected)
 			defer func() {
 				n.SetStatus(StateIdle)
@@ -397,16 +429,31 @@ func StartFullNodeCommand() *cobra.Command {
 
 			go func() {
 				mergedBlockChain := n.FetchAndMergeBlockchains()
+
 				n.UpdateBlockchain(mergedBlockChain)
-				fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
+				fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
 
 				if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-					fmt.Println("Creating new blockchain")
+					fmt.Println("No existing blockchain found! Initializing new blockchain.")
 					n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
 				}
 				n.GetBlockchain().Print()
+				fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
+				defer n.GetBlockchain().Database.Close()
+
 			}()
-			select {}
+
+			port := n.GetPort()
+			lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+			util.Handle(err)
+
+			grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+			pb.RegisterBlockchainServiceServer(grpcServer, n)
+
+			fmt.Printf("Starting gRPC server on port %s\n", port)
+			if err := grpcServer.Serve(lis); err != nil {
+				util.Handle(err)
+			}
 		},
 	}
 }
@@ -434,17 +481,18 @@ func StartWalletNodeCommand() *cobra.Command {
 				mergedBlockChain := n.FetchAndMergeBlockchains()
 				n.UpdateBlockchain(mergedBlockChain)
 				fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
-				if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-					fmt.Println("Creating new blockchain")
-					n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
-				}
-				if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-					fmt.Println("Creating2 new blockchain")
-					return
-				}
-				n.GetBlockchain().Print()
+				n.Blockchain.Print()
+				n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+				n.Blockchain.Print()
+				defer n.GetBlockchain().Database.Close()
 			}()
-			select {}
+			port := n.GetPort()
+			lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+			util.Handle(err)
+			grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+			pb.RegisterBlockchainServiceServer(grpcServer, n)
+			grpcServer.Serve(lis)
+			fmt.Printf("Wallet node is running on port %s\n", port)
 		},
 	}
 }

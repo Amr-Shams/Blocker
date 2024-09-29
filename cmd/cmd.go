@@ -30,6 +30,7 @@ func addCommandsToWallet(w *cobra.Command) {
 	w.AddCommand(wallet.CreateWalletCommand())
 	w.AddCommand(wallet.InquireyBalanceCommand())
 	w.AddCommand(wallet.SendCommand())
+	w.AddCommand(wallet.PrintCommand())
 }
 
 type prof interface {

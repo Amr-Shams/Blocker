@@ -105,6 +105,7 @@ func InquireyBalanceCommand() *cobra.Command {
 			pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-CheckSumLength]
 			UTXOs := UTXOSet.FindUTXO(pubKeyHash)
 			for _, out := range UTXOs {
+				fmt.Printf("Out: %v\n", out)
 				balance += out.Value
 			}
 			fmt.Printf("Balance of '%s': %d\n", address, balance)
@@ -115,4 +116,15 @@ func InquireyBalanceCommand() *cobra.Command {
 	cmd.MarkPersistentFlagRequired("address")
 	viper.BindPFlag("address", flags.Lookup("address"))
 	return cmd
+}
+func PrintCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show",
+		Short: "Prints blockchain",
+		Run: func(_ *cobra.Command, _ []string) {
+			nodeID := viper.GetString("NodeID")
+			chain := blockchain.ContinueBlockChain(nodeID)
+			chain.Print()
+		},
+	}
 }

@@ -132,6 +132,7 @@ func (u *UTXOSet) DeleteByPrefix() {
 	defer iter.Release()
 	for iter.Next() {
 		if bytes.HasPrefix(iter.Key(), utxoPrefix) {
+			fmt.Printf("Deleting %x\n", iter.Key())
 			batch.Delete(iter.Key())
 		}
 		if batch.Len() >= max_number {

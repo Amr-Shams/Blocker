@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/Amr-Shams/Blocker/util"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -38,14 +39,20 @@ func (bc *BlockChain) AddBlock(txs []*Transaction) (*Block, bool) {
 		util.Handle(fmt.Errorf("previous block not found"))
 		return nil, false
 	}
+
 	block := NewBlock(txs, prevBlock.Hash)
 	err := bc.Database.Put(block.Hash, block.Serialize(), nil)
 	if err != nil && bytes.Contains([]byte(err.Error()), []byte("leveldb: key exists")) {
 		log.Printf("Block already exists: %x", block.Hash)
 		return block, false
 	}
+
 	err = bc.Database.Put([]byte("lh"), block.Hash, nil)
-	util.Handle(err)
+	if err != nil {
+		util.Handle(err)
+		return nil, false
+	}
+
 	bc.LastHash = block.Hash
 	return block, true
 }
@@ -53,7 +60,6 @@ func (bc *BlockChain) AddBlock(txs []*Transaction) (*Block, bool) {
 func (bc *BlockChain) GetBlock(blockHash []byte) *Block {
 	blockData, err := bc.Database.Get(blockHash, nil)
 	if err != nil {
-		log.Printf("Block not found:  %v", err)
 		return nil
 	}
 	var block Block
@@ -70,16 +76,17 @@ func (bc *BlockChain) HasBlock(b *Block) (bool, Block) {
 	return true, block
 }
 func (bc *BlockChain) Print() {
-
 	if bc.Database == nil {
 		fmt.Println("No database")
 		return
 	}
 
 	currentHash := bc.LastHash
+	fmt.Println("Last hash: ", hex.EncodeToString(currentHash))
 	for {
 		block := bc.GetBlock(currentHash)
 		if block == nil {
+			fmt.Println("Block not found")
 			break
 		}
 		block.Print()
@@ -277,10 +284,15 @@ func (bc *BlockChain) VerifyTransaction(tx *Transaction) bool {
 	return tx.Verify(prevTXs)
 }
 
-func (bc *BlockChain) AddEnireBlock(b *Block) {
+func (bc *BlockChain) AddEnireBlock(b *Block) bool {
 	err := bc.Database.Put(b.Hash, b.Serialize(), nil)
+	if err != nil && strings.Contains(err.Error(), "leveldb: key") {
+		fmt.Println("Block already exists")
+		return false
+	}
 	util.Handle(err)
 	bc.LastHash = b.Hash
 	err = bc.Database.Put([]byte("lh"), b.Hash, nil)
 	util.Handle(err)
+	return true
 }
