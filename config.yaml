@@ -1,0 +1,10 @@
+Transforms:
+  - match: (.*) \*/
+    replace: $1
+  - match: \s*-\s*(.*)\s*$
+    replace: $1
+Keywords:
+  - TODO
+  - ADD
+  - HELP
+Remote: "origin"

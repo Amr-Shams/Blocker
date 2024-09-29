@@ -13,6 +13,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TODO(66): Add the auto-completion for the commands
+// it is a good way as there are a lot of commands
+
 var (
 	avilaibleNodeCommands   = []string{"print", "create", "clean", "refresh"}
 	avilaibleWalletCommands = []string{"createwallet", "listalladdress", "clean", "inquirebalance", "send"}
