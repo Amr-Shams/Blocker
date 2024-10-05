@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// HELPPPP(65): we still need to test the broadcast function and peer to peer sync with the new updates
-// ADD(67): a new presentation for the project using HTMX and TailwindCSS
+// HELPPPP(4): we still need to test the broadcast function and peer to peer sync with the new updates
+// ADD(7): a new presentation for the project using HTMX and TailwindCSS
 
 const (
 	StateIdle = iota

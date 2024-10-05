@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// TODO(66): Add the auto-completion for the commands
+// TODO(6): Add the auto-completion for the commands
 // it is a good way as there are a lot of commands
 
 var (
