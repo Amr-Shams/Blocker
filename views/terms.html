@@ -1,0 +1,78 @@
+<!-- components/terms.html -->
+<div class="terms-container">
+    <h1>Terms & Policies</h1>
+    
+    <div class="terms-section">
+        <h2>User Agreement</h2>
+        <p>By using Quantum Wallet, you agree to comply with and be bound by the following terms and conditions:</p>
+        
+        <div class="terms-grid">
+            <div class="terms-card">
+                <h3>Account Security</h3>
+                <ul>
+                    <li>You are responsible for maintaining the confidentiality of your wallet credentials</li>
+                    <li>Any activities that occur under your account are your responsibility</li>
+                    <li>Notify us immediately of any unauthorized use of your account</li>
+                </ul>
+            </div>
+            
+            <div class="terms-card">
+                <h3>Privacy Policy</h3>
+                <ul>
+                    <li>We collect minimal personal information necessary for operation</li>
+                    <li>Your transaction data is encrypted and never shared with third parties</li>
+                    <li>You can request deletion of your personal data at any time</li>
+                </ul>
+            </div>
+            
+            <div class="terms-card">
+                <h3>Service Usage</h3>
+                <ul>
+                    <li>The service is provided "as is" without warranties</li>
+                    <li>We reserve the right to modify or terminate the service</li>
+                    <li>Users must comply with all applicable laws and regulations</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.terms-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.terms-section {
+    margin-top: 2rem;
+}
+
+.terms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+}
+
+.terms-card {
+    background: rgba(255,255,255,0.1);
+    padding: 2rem;
+    border-radius: 15px;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.terms-card h3 {
+    margin-bottom: 1rem;
+    color: #7c3aed;
+}
+
+.terms-card ul {
+    padding-left: 1.5rem;
+}
+
+.terms-card li {
+    margin: 0.5rem 0;
+    opacity: 0.8;
+}
+</style>

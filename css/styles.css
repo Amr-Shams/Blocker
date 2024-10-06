@@ -1,0 +1,166 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Inter', sans-serif;
+}
+
+body {
+    background-color: #0a0a1f;
+    color: #ffffff;
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wallet-container {
+    position: relative;
+    width: 400px;
+    height: 300px;
+    perspective: 2000px;
+    cursor: pointer;
+}
+
+.pocket-wallet {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 1s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.pocket-wallet.open {
+    transform: rotateX(30deg) translateY(-50px);
+}
+
+.wallet-front, .wallet-back, .wallet-flap {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    background: linear-gradient(45deg, #1a1a2e, #2a2a4e);
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+.wallet-front {
+    background: linear-gradient(45deg, #2a2a4e, #3a3a6e);
+    transform: translateZ(2px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 20px;
+}
+
+.wallet-back {
+    transform: translateZ(-2px);
+    background: #1a1a2e;
+}
+
+.wallet-flap {
+    height: 80%;
+    transform-origin: bottom;
+    transition: transform 1s cubic-bezier(0.645, 0.045, 0.355, 1);
+    background: linear-gradient(45deg, #2a2a4e, #3a3a6e);
+    border-radius: 20px 20px 0 0;
+}
+
+.pocket-wallet.open .wallet-flap {
+    transform: rotateX(-110deg);
+}
+
+.card {
+    position: absolute;
+    width: 340px;
+    height: 200px;
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 15px;
+    left: 50%;
+    bottom: 40px;
+    transform: translateX(-50%) translateY(0) translateZ(1px);
+    transition: all 1s cubic-bezier(0.645, 0.045, 0.355, 1);
+    opacity: 0;
+    padding: 20px;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.pocket-wallet.open .card {
+    transform: translateX(-50%) translateY(-120px) translateZ(100px);
+    opacity: 1;
+}
+
+.card-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.login-form {
+    display: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+.login-form.active {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    opacity: 1;
+}
+
+.input-field {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: white;
+    font-size: 14px;
+}
+
+.login-button {
+    width: 100%;
+    padding: 8px;
+    background: linear-gradient(45deg, #7c3aed, #3b82f6);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.login-button:hover {
+    transform: translateY(-2px);
+}
+
+.balance-display {
+    opacity: 1;
+    transition: opacity 0.5s ease;
+}
+
+.balance-display.hidden {
+    display: none;
+    opacity: 0;
+}
+
+.wallet-texture {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1) 0%, transparent 10%) 0 0/20px 20px;
+    pointer-events: none;
+}
+
+.particle {
+    position: absolute;
+    background: rgba(124, 58, 237, 0.5);
+    border-radius: 50%;
+}
+
