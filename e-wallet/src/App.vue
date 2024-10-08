@@ -1,16 +1,16 @@
 <template>
-  <div>
-    <NodeContainer />
+  <div id="app">
+    <nav></nav>
+    <router-view />
   </div>
 </template>
 
 <script>
-import NodeContainer from './components/NodeContainer.vue'
-
 export default {
-  name: 'App',
-  components: {
-    NodeContainer
-  }
-}
+  name: "App",
+};
 </script>
+
+<style>
+/* Add your styles here */
+</style>

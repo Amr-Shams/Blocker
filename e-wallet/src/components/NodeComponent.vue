@@ -1,77 +1,93 @@
 <template>
-  <div class="node-wrapper">
-    <div class="node">
-      <div class="address">{{ shortenedAddress }}</div>
-      <div class="balance">{{ balance }} ETH</div>
-    </div>
+  <div class="node-cell" @click="handleClick">
+    <component
+      :is="componentType"
+      :value="formattedValue"
+      :class="{ selected: isSelected }"
+    />
   </div>
 </template>
 
 <script>
 export default {
-  name: 'NodeComponent',
+  name: "NodeComponent",
   props: {
-    address: {
-      type: String,
-      required: true
+    nodeData: {
+      type: Object,
+      required: true,
     },
-    initialBalance: {
-      type: Number,
-      default: 0
-    }
-  },
-  data() {
-    return {
-      balance: this.initialBalance
-    }
+    property: {
+      type: String,
+      required: true,
+    },
+    isSelected: {
+      type: Boolean,
+      default: false,
+    },
   },
   computed: {
-    shortenedAddress() {
-      return `${this.address.substring(0, 6)}...`
-    }
+    componentType() {
+      // Determine the appropriate component type based on the property
+      switch (this.property) {
+        case "address":
+          return "address-display";
+        case "balance":
+          return "balance-display";
+        default:
+          return "default-display";
+      }
+    },
+    formattedValue() {
+      const value = this.nodeData[this.property];
+      switch (this.property) {
+        case "address":
+          return this.shortenAddress(value);
+        case "balance":
+          return `${value} ETH`;
+        default:
+          return value;
+      }
+    },
   },
-  mounted() {
-    // Simulate balance updates
-    setInterval(() => {
-      this.balance = +(Math.random() * 10).toFixed(2)
-    }, 5000)
-  }
-}
+  methods: {
+    shortenAddress(address) {
+      return `${address.substring(0, 6)}...${address.substring(
+        address.length - 4
+      )}`;
+    },
+    handleClick() {
+      this.$emit("node-click", this.nodeData);
+    },
+  },
+};
 </script>
 
 <style scoped>
-.node-wrapper {
-  display: inline-block;
-  margin: 10px;
-}
-
-.node {
-  width: 120px;
-  height: 120px;
-  background: #f8f9fa;
-  border: 2px solid #dee2e6;
-  border-radius: 50%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.node-cell {
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
-.node:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+.node-cell:hover {
+  opacity: 0.8;
 }
 
-.address {
-  font-size: 14px;
+.selected {
+  background-color: rgba(122, 162, 247, 0.1);
+  border-radius: 4px;
+}
+
+.address-display {
   font-family: monospace;
-  margin-bottom: 8px;
+  color: #9ece6a;
 }
 
-.balance {
+.balance-display {
+  color: #7aa2f7;
   font-weight: bold;
-  color: #198754;
+}
+
+.default-display {
+  color: #a9b1d6;
 }
 </style>
