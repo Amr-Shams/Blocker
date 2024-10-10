@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+    "net/http"
+    "golang.org/x/sync/errgroup"
+    "log"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
 	pb "github.com/Amr-Shams/Blocker/server"
@@ -16,6 +19,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+    "github.com/soheilhy/cmux"
 )
 
 // HELPPPP(4): we still need to test the broadcast function and peer to peer sync with the new updates
@@ -33,7 +37,22 @@ var stateName = map[int]string{
 	StateMining:    "Mining",
 	StateConnected: "Connected",
 }
-
+type Node interface {
+    GetBlockChain(context.Context, *pb.Empty) (*pb.Response, error)
+    BroadcastBlock(context.Context, *pb.Transaction) (*pb.Response, error)
+    GetAddress() string 
+    CheckStatus(context.Context, *pb.Request) (*pb.Response, error) 
+    SetStatus(int) 
+    GetBlockchain() *blockchain.BlockChain 
+    SetBlockchain(*blockchain.BlockChain) 
+    GetPort() string 
+    AddBlock(context.Context, *pb.Transaction) (*pb.Response, error) 
+    Hello(context.Context, *pb.Request) (*pb.HelloResponse, error) 
+    GetPeers() []string 
+    DiscoverPeers() 
+    FetchAndMergeBlockchains() []*pb.Block 
+    UpdateBlockchain([]*pb.Block) 
+}
 type BaseNode struct {
 	ID         int32
 	Address    string
@@ -407,6 +426,123 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 	}
 }
 
+func grpcServer(l net.Listener, n Node) error{
+grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+    pb.RegisterBlockchainServiceServer(grpcServer, n)
+    return grpcServer.Serve(l)
+}
+
+func httpServer(l net.Listener) error {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte("Hello World"))
+    })
+    s := &http.Server{
+        Handler: mux,  // Fixed field name from 'handler' to 'Handler'
+    }
+    return s.Serve(l)
+}
+
+func StartWalletNodeCommand() *cobra.Command {
+    return &cobra.Command{
+        Use:     "run2",
+        Short:   "Start a wallet node",
+        Long:    "a wallet node that can send and receive transactions",
+        Example: "wallet print",
+        Args:    cobra.ExactArgs(0),
+        Run: func(cmd *cobra.Command, args []string) {
+            n := NewWalletNode()
+            n.DiscoverPeers()
+            fmt.Printf("Node is connected to %d peers\n", len(n.GetPeers()))
+            
+            conn, err := grpc.Dial(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+            if err != nil {
+                log.Fatalf("Failed to create gRPC connection: %v", err)
+            }
+            defer conn.Close()
+            
+            n.SetStatus(StateConnected)
+            defer func() {
+                n.SetStatus(StateIdle)
+            }()
+
+            // Start blockchain synchronization in a goroutine
+            go func() {
+                if err := syncBlockchain(n); err != nil {
+                    log.Printf("Error syncing blockchain: %v", err)
+                }
+            }()
+
+            // Set up server
+            port := n.GetPort()
+            lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+            if err != nil {
+                log.Fatalf("Failed to listen on port %s: %v", port, err)
+            }
+
+            // Initialize cmux
+            m := cmux.New(lis)
+            
+            // Use specific matchers for gRPC and HTTP
+            grpcL := m.MatchWithWriters(
+                cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
+            )
+            httpL := m.Match(cmux.HTTP1Fast())
+
+            // Create error group for managing goroutines
+            g := new(errgroup.Group)
+
+            // Start gRPC server
+            g.Go(func() error {
+                log.Printf("Starting gRPC server on port %s\n", port)
+                if err := grpcServer(grpcL, n); err != nil {
+                return fmt.Errorf("gRPC server error: %v", err)
+                }
+                return nil
+            })
+
+            // Start HTTP server
+            g.Go(func() error {
+                log.Printf("Starting HTTP server on port %s\n", port)
+                if err := httpServer(httpL); err != nil {
+                    return fmt.Errorf("HTTP server error: %v", err)
+                }
+                return nil
+            })
+
+            // Start cmux
+            g.Go(func() error {
+                log.Printf("Starting multiplexer on port %s\n", port)
+                return m.Serve()
+            })
+
+            // Wait for all servers and handle errors
+            if err := g.Wait(); err != nil {
+                log.Fatalf("Server error: %v", err)
+            }
+        },
+    }
+}
+
+// Helper function to handle blockchain synchronization
+func syncBlockchain(n *WalletNode) error {
+    fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
+    
+    mergedBlockChain := n.FetchAndMergeBlockchains()
+    n.UpdateBlockchain(mergedBlockChain)
+    fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
+
+    if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
+        fmt.Println("No existing blockchain found! Initializing new blockchain.")
+        n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+    }
+    
+    n.GetBlockchain().Print()
+    fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
+    
+    defer n.GetBlockchain().Database.Close()
+    return nil
+}
 func StartFullNodeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "run1",
@@ -457,45 +593,6 @@ func StartFullNodeCommand() *cobra.Command {
 			if err := grpcServer.Serve(lis); err != nil {
 				util.Handle(err)
 			}
-		},
-	}
-}
-func StartWalletNodeCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "run2",
-		Short:   "Start a wallet node",
-		Long:    " a wallet node that can send and receive transactions",
-		Example: "wallet print",
-		Args:    cobra.ExactArgs(0),
-		Run: func(cmd *cobra.Command, args []string) {
-			n := NewWalletNode()
-			n.DiscoverPeers()
-			fmt.Printf("Node is connected to %d peers\n", len(n.GetPeers()))
-			conn, err := grpc.NewClient(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-			util.Handle(err)
-			defer conn.Close()
-			n.SetStatus(StateConnected)
-			defer func() {
-				n.SetStatus(StateIdle)
-			}()
-
-			fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
-			go func() {
-				mergedBlockChain := n.FetchAndMergeBlockchains()
-				n.UpdateBlockchain(mergedBlockChain)
-				fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
-				n.Blockchain.Print()
-				n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
-				n.Blockchain.Print()
-				defer n.GetBlockchain().Database.Close()
-			}()
-			port := n.GetPort()
-			lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
-			util.Handle(err)
-			grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
-			pb.RegisterBlockchainServiceServer(grpcServer, n)
-			grpcServer.Serve(lis)
-			fmt.Printf("Wallet node is running on port %s\n", port)
 		},
 	}
 }
