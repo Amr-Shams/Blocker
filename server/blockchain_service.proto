@@ -49,14 +49,29 @@ message HelloResponse {
   string address = 2;
   string status = 3;
   string version = 4;
-  repeated Block blocks = 5;
-  repeated string peers = 6;
+  string type = 5;
+  bytes lastHash = 7;
+  int64 lastUpdate = 8;
 }
-
+message AddPeerRequest {
+    int32 node_id = 1; 
+    string address = 2;
+    string status = 3;
+    string type = 4;
+    string version = 5;
+}
+message AddPeerResponse {
+    bool success = 1;
+}
+message GetPeersResponse {
+   repeated HelloResponse peers = 1;
+}
 service BlockchainService {
   rpc GetBlockChain (Empty) returns (Response);
   rpc BroadcastBlock (Transaction) returns (Response);
   rpc CheckStatus (Request) returns (Response);
   rpc AddBlock (Transaction) returns (Response);
   rpc Hello (Request) returns (HelloResponse);
+  rpc AddPeer (AddPeerRequest) returns (AddPeerResponse);
+  rpc GetPeers (Empty) returns (GetPeersResponse);
 }

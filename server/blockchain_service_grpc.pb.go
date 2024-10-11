@@ -24,6 +24,8 @@ const (
 	BlockchainService_CheckStatus_FullMethodName    = "/server.BlockchainService/CheckStatus"
 	BlockchainService_AddBlock_FullMethodName       = "/server.BlockchainService/AddBlock"
 	BlockchainService_Hello_FullMethodName          = "/server.BlockchainService/Hello"
+	BlockchainService_AddPeer_FullMethodName        = "/server.BlockchainService/AddPeer"
+	BlockchainService_GetPeers_FullMethodName       = "/server.BlockchainService/GetPeers"
 )
 
 // BlockchainServiceClient is the client API for BlockchainService service.
@@ -35,6 +37,8 @@ type BlockchainServiceClient interface {
 	CheckStatus(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
 	AddBlock(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error)
 	Hello(ctx context.Context, in *Request, opts ...grpc.CallOption) (*HelloResponse, error)
+	AddPeer(ctx context.Context, in *AddPeerRequest, opts ...grpc.CallOption) (*AddPeerResponse, error)
+	GetPeers(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GetPeersResponse, error)
 }
 
 type blockchainServiceClient struct {
@@ -95,6 +99,26 @@ func (c *blockchainServiceClient) Hello(ctx context.Context, in *Request, opts .
 	return out, nil
 }
 
+func (c *blockchainServiceClient) AddPeer(ctx context.Context, in *AddPeerRequest, opts ...grpc.CallOption) (*AddPeerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddPeerResponse)
+	err := c.cc.Invoke(ctx, BlockchainService_AddPeer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blockchainServiceClient) GetPeers(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GetPeersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPeersResponse)
+	err := c.cc.Invoke(ctx, BlockchainService_GetPeers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BlockchainServiceServer is the server API for BlockchainService service.
 // All implementations must embed UnimplementedBlockchainServiceServer
 // for forward compatibility.
@@ -104,6 +128,9 @@ type BlockchainServiceServer interface {
 	CheckStatus(context.Context, *Request) (*Response, error)
 	AddBlock(context.Context, *Transaction) (*Response, error)
 	Hello(context.Context, *Request) (*HelloResponse, error)
+	AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error)
+	GetPeers(context.Context, *Empty) (*GetPeersResponse, error)
+
 }
 
 // UnimplementedBlockchainServiceServer must be embedded to have
@@ -127,6 +154,12 @@ func (UnimplementedBlockchainServiceServer) AddBlock(context.Context, *Transacti
 }
 func (UnimplementedBlockchainServiceServer) Hello(context.Context, *Request) (*HelloResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Hello not implemented")
+}
+func (UnimplementedBlockchainServiceServer) AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddPeer not implemented")
+}
+func (UnimplementedBlockchainServiceServer) GetPeers(context.Context, *Empty) (*GetPeersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeers not implemented")
 }
 func (UnimplementedBlockchainServiceServer) mustEmbedUnimplementedBlockchainServiceServer() {}
 func (UnimplementedBlockchainServiceServer) testEmbeddedByValue()                           {}
@@ -239,6 +272,42 @@ func _BlockchainService_Hello_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BlockchainService_AddPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).AddPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_AddPeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).AddPeer(ctx, req.(*AddPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlockchainService_GetPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).GetPeers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_GetPeers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).GetPeers(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BlockchainService_ServiceDesc is the grpc.ServiceDesc for BlockchainService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -265,6 +334,14 @@ var BlockchainService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Hello",
 			Handler:    _BlockchainService_Hello_Handler,
+		},
+		{
+			MethodName: "AddPeer",
+			Handler:    _BlockchainService_AddPeer_Handler,
+		},
+		{
+			MethodName: "GetPeers",
+			Handler:    _BlockchainService_GetPeers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

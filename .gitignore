@@ -3,4 +3,7 @@
 # ignore eveything inside ./tmp 
 ./tmp/*
 tmp 
-*.data 
+*.data
+go.mod
+go.sum
+Blocker 

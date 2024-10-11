@@ -2,29 +2,31 @@ package node
 
 import (
 	"fmt"
+	"log"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
-    "net/http"
-    "golang.org/x/sync/errgroup"
-    "log"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
 	pb "github.com/Amr-Shams/Blocker/server"
 	"github.com/Amr-Shams/Blocker/util"
 	"github.com/google/uuid"
+	"github.com/soheilhy/cmux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-    "github.com/soheilhy/cmux"
 )
 
-// HELPPPP(4): we still need to test the broadcast function and peer to peer sync with the new updates
-// ADD(7): a new presentation for the project using HTMX and TailwindCSS
 
+// ADD(7): a new presentation for the project using HTMX and TailwindCSS
+// ADD(8): new feature
+//for the clock sync between the nodes(version vector clock, logical clock)
 const (
 	StateIdle = iota
 	StateMining
@@ -37,21 +39,24 @@ var stateName = map[int]string{
 	StateMining:    "Mining",
 	StateConnected: "Connected",
 }
+
 type Node interface {
-    GetBlockChain(context.Context, *pb.Empty) (*pb.Response, error)
-    BroadcastBlock(context.Context, *pb.Transaction) (*pb.Response, error)
-    GetAddress() string 
-    CheckStatus(context.Context, *pb.Request) (*pb.Response, error) 
-    SetStatus(int) 
-    GetBlockchain() *blockchain.BlockChain 
-    SetBlockchain(*blockchain.BlockChain) 
-    GetPort() string 
-    AddBlock(context.Context, *pb.Transaction) (*pb.Response, error) 
-    Hello(context.Context, *pb.Request) (*pb.HelloResponse, error) 
-    GetPeers() []string 
-    DiscoverPeers() 
-    FetchAndMergeBlockchains() []*pb.Block 
-    UpdateBlockchain([]*pb.Block) 
+	GetBlockChain(context.Context, *pb.Empty) (*pb.Response, error)
+	BroadcastBlock(context.Context, *pb.Transaction) (*pb.Response, error)
+	AddPeer(context.Context, *pb.AddPeerRequest) (*pb.AddPeerResponse, error)
+	GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, error)
+	GetAddress() string
+	CheckStatus(context.Context, *pb.Request) (*pb.Response, error)
+	SetStatus(int)
+	GetBlockchain() *blockchain.BlockChain
+	SetBlockchain(*blockchain.BlockChain)
+	GetPort() string
+	AddBlock(context.Context, *pb.Transaction) (*pb.Response, error)
+	Hello(context.Context, *pb.Request) (*pb.HelloResponse, error)
+	AllPeersAddress() []string
+	DiscoverPeers()
+	FetchAndMergeBlockchains() []*pb.Block
+	UpdateBlockchain([]*pb.Block)
 }
 type BaseNode struct {
 	ID         int32
@@ -59,6 +64,8 @@ type BaseNode struct {
 	Status     int
 	Blockchain *blockchain.BlockChain
 	Peers      map[string]*BaseNode
+	Type       string
+	LastTime   time.Time
 }
 
 type FullNode struct {
@@ -204,10 +211,19 @@ func (s *BaseNode) GetBlockchain() *blockchain.BlockChain {
 func (s *BaseNode) SetBlockchain(bc *blockchain.BlockChain) {
 	fmt.Printf("Setting blockchain for %s\n", s.Address)
 	s.Blockchain = bc
-
+	s.LastTime = time.Now()
 }
 func (s *BaseNode) GetPort() string {
 	return s.Address[strings.LastIndex(s.Address, ":")+1:]
+}
+func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
+	s.Peers[in.Address] = &BaseNode{
+		ID:      in.NodeId,
+		Address: in.Address,
+		Status:  getStatusFromString(in.Status),
+		Type:    in.Type,
+	}
+	return &pb.AddPeerResponse{Success: true}, nil
 }
 func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Response, error) {
 	s.Status = StateMining
@@ -253,7 +269,7 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Respon
 
 func (s *BaseNode) Hello(ctx context.Context, in *pb.Request) (*pb.HelloResponse, error) {
 	return &pb.HelloResponse{
-		NodeId: s.ID, Address: s.Address, Status: stateName[s.Status], Blocks: nil, Peers: s.GetPeers(),
+		NodeId: s.ID, Address: s.Address, Status: stateName[s.Status], Type: s.Type, LastHash: s.Blockchain.LastHash, LastUpdate: s.LastTime.Unix(),
 	}, nil
 }
 
@@ -269,8 +285,27 @@ func getStatusFromString(status string) int {
 		return StateIdle
 	}
 }
-
-func (b *BaseNode) GetPeers() []string {
+func (s *BaseNode) GetPeers(ctx context.Context, in *pb.Empty) (*pb.GetPeersResponse, error) {
+	response := []*pb.HelloResponse{}
+	for _, peer := range s.Peers {
+		response = append(response, &pb.HelloResponse{
+			NodeId:     peer.ID,
+			Address:    peer.Address,
+			Status:     stateName[peer.Status],
+			Type:       peer.Type,
+			LastHash:   peer.GetLastHash(),
+			LastUpdate: peer.LastTime.Unix(),
+		})
+	}
+	return &pb.GetPeersResponse{Peers: response}, nil
+}
+func (b *BaseNode) GetLastHash() []byte {
+	if b.Blockchain == nil {
+		return []byte{}
+	}
+	return b.Blockchain.GetLastHash()
+}
+func (b *BaseNode) AllPeersAddress() []string {
 	peers := []string{}
 	for _, peer := range b.Peers {
 		peers = append(peers, peer.GetAddress())
@@ -288,6 +323,7 @@ func NewFullNode() *FullNode {
 			Blockchain: blockchain.ContinueBlockChain(address),
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
+			Type:       "full",
 		},
 	}
 }
@@ -302,6 +338,7 @@ func NewWalletNode() *WalletNode {
 			Blockchain: blockchain.ContinueBlockChain(address),
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
+			Type:       "wallet",
 		},
 	}
 }
@@ -327,16 +364,29 @@ func (n *BaseNode) DiscoverPeers() {
 				fmt.Printf("Failed to connect to %s: %v\n", fullAddress, err)
 				continue
 			}
-
+			peers, _ := client.GetPeers(context.Background(), &pb.Empty{})
+			fmt.Printf("Peers Lenght in client %d\n", len(peers.Peers))
+			_, err = client.AddPeer(context.Background(), &pb.AddPeerRequest{
+				NodeId:  int32(n.ID),
+				Address: n.GetAddress(),
+				Status:  stateName[n.Status],
+				Type:    n.Type,
+			})
+			if err != nil {
+				fmt.Printf("Failed to add peer %s: %v\n", fullAddress, err)
+				continue
+			}
 			n.Peers[fullAddress] = &BaseNode{
 				ID:      peerResponse.NodeId,
 				Address: peerResponse.Address,
 				Status:  getStatusFromString(peerResponse.Status),
+				Type:    peerResponse.Type,
 			}
+			peers, _ = client.GetPeers(context.Background(), &pb.Empty{})
+			fmt.Printf("Peers Lenght in client %d\n", len(peers.Peers))
 		}
 	}
 }
-
 func (n *BaseNode) FetchAndMergeBlockchains() []*pb.Block {
 	var wg sync.WaitGroup
 	fetchedBlocks := make(chan *pb.Response)
@@ -379,8 +429,8 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 		n.Blockchain = blockchain.ContinueBlockChain(n.Address)
 	}
 	var updateUtxo = false
- for i := len(mergedBlockChain) - 1; i >= 0; i-- {
-        b := mergedBlockChain[i]
+	for i := len(mergedBlockChain) - 1; i >= 0; i-- {
+		b := mergedBlockChain[i]
 		tsx := []*blockchain.Transaction{}
 		for _, tx := range b.Transactions {
 			Vin := []blockchain.TXInput{}
@@ -426,122 +476,122 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 	}
 }
 
-func grpcServer(l net.Listener, n Node) error{
-grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
-    pb.RegisterBlockchainServiceServer(grpcServer, n)
-    return grpcServer.Serve(l)
+func grpcServer(l net.Listener, n Node) error {
+	grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+	pb.RegisterBlockchainServiceServer(grpcServer, n)
+	return grpcServer.Serve(l)
 }
 
 func httpServer(l net.Listener) error {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Hello World"))
-    })
-    s := &http.Server{
-        Handler: mux,  // Fixed field name from 'handler' to 'Handler'
-    }
-    return s.Serve(l)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello World"))
+	})
+	s := &http.Server{
+		Handler: mux, // Fixed field name from 'handler' to 'Handler'
+	}
+	return s.Serve(l)
 }
 
 func StartWalletNodeCommand() *cobra.Command {
-    return &cobra.Command{
-        Use:     "run2",
-        Short:   "Start a wallet node",
-        Long:    "a wallet node that can send and receive transactions",
-        Example: "wallet print",
-        Args:    cobra.ExactArgs(0),
-        Run: func(cmd *cobra.Command, args []string) {
-            n := NewWalletNode()
-            n.DiscoverPeers()
-            fmt.Printf("Node is connected to %d peers\n", len(n.GetPeers()))
-            
-            conn, err := grpc.Dial(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-            if err != nil {
-                log.Fatalf("Failed to create gRPC connection: %v", err)
-            }
-            defer conn.Close()
-            
-            n.SetStatus(StateConnected)
-            defer func() {
-                n.SetStatus(StateIdle)
-            }()
+	return &cobra.Command{
+		Use:     "run2",
+		Short:   "Start a wallet node",
+		Long:    "a wallet node that can send and receive transactions",
+		Example: "wallet print",
+		Args:    cobra.ExactArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			n := NewWalletNode()
+			n.DiscoverPeers()
+			fmt.Printf("Node is connected to %d peers\n", len(n.AllPeersAddress()))
 
-            // Start blockchain synchronization in a goroutine
-            go func() {
-                if err := syncBlockchain(n); err != nil {
-                    log.Printf("Error syncing blockchain: %v", err)
-                }
-            }()
+			conn, err := grpc.Dial(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.Fatalf("Failed to create gRPC connection: %v", err)
+			}
+			defer conn.Close()
 
-            // Set up server
-            port := n.GetPort()
-            lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
-            if err != nil {
-                log.Fatalf("Failed to listen on port %s: %v", port, err)
-            }
+			n.SetStatus(StateConnected)
+			defer func() {
+				n.SetStatus(StateIdle)
+			}()
 
-            // Initialize cmux
-            m := cmux.New(lis)
-            
-            // Use specific matchers for gRPC and HTTP
-            grpcL := m.MatchWithWriters(
-                cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
-            )
-            httpL := m.Match(cmux.HTTP1Fast())
+			// Start blockchain synchronization in a goroutine
+			go func() {
+				if err := syncBlockchain(n); err != nil {
+					log.Printf("Error syncing blockchain: %v", err)
+				}
+			}()
 
-            // Create error group for managing goroutines
-            g := new(errgroup.Group)
+			// Set up server
+			port := n.GetPort()
+			lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+			if err != nil {
+				log.Fatalf("Failed to listen on port %s: %v", port, err)
+			}
 
-            // Start gRPC server
-            g.Go(func() error {
-                log.Printf("Starting gRPC server on port %s\n", port)
-                if err := grpcServer(grpcL, n); err != nil {
-                return fmt.Errorf("gRPC server error: %v", err)
-                }
-                return nil
-            })
+			// Initialize cmux
+			m := cmux.New(lis)
 
-            // Start HTTP server
-            g.Go(func() error {
-                log.Printf("Starting HTTP server on port %s\n", port)
-                if err := httpServer(httpL); err != nil {
-                    return fmt.Errorf("HTTP server error: %v", err)
-                }
-                return nil
-            })
+			// Use specific matchers for gRPC and HTTP
+			grpcL := m.MatchWithWriters(
+				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
+			)
+			httpL := m.Match(cmux.HTTP1Fast())
 
-            // Start cmux
-            g.Go(func() error {
-                log.Printf("Starting multiplexer on port %s\n", port)
-                return m.Serve()
-            })
+			// Create error group for managing goroutines
+			g := new(errgroup.Group)
 
-            // Wait for all servers and handle errors
-            if err := g.Wait(); err != nil {
-                log.Fatalf("Server error: %v", err)
-            }
-        },
-    }
+			// Start gRPC server
+			g.Go(func() error {
+				log.Printf("Starting gRPC server on port %s\n", port)
+				if err := grpcServer(grpcL, n); err != nil {
+					return fmt.Errorf("gRPC server error: %v", err)
+				}
+				return nil
+			})
+
+			// Start HTTP server
+			g.Go(func() error {
+				log.Printf("Starting HTTP server on port %s\n", port)
+				if err := httpServer(httpL); err != nil {
+					return fmt.Errorf("HTTP server error: %v", err)
+				}
+				return nil
+			})
+
+			// Start cmux
+			g.Go(func() error {
+				log.Printf("Starting multiplexer on port %s\n", port)
+				return m.Serve()
+			})
+
+			// Wait for all servers and handle errors
+			if err := g.Wait(); err != nil {
+				log.Fatalf("Server error: %v", err)
+			}
+		},
+	}
 }
 
 // Helper function to handle blockchain synchronization
-func syncBlockchain(n *WalletNode) error {
-    fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
-    
-    mergedBlockChain := n.FetchAndMergeBlockchains()
-    n.UpdateBlockchain(mergedBlockChain)
-    fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
+func syncBlockchain(n Node) error {
+	fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
 
-    if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-        fmt.Println("No existing blockchain found! Initializing new blockchain.")
-        n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
-    }
-    
-    n.GetBlockchain().Print()
-    fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
-    
-    defer n.GetBlockchain().Database.Close()
-    return nil
+	mergedBlockChain := n.FetchAndMergeBlockchains()
+	n.UpdateBlockchain(mergedBlockChain)
+	fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
+
+	if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
+		fmt.Println("No existing blockchain found! Initializing new blockchain.")
+		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+	}
+
+	n.GetBlockchain().Print()
+	fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
+
+	defer n.GetBlockchain().Database.Close()
+	return nil
 }
 func StartFullNodeCommand() *cobra.Command {
 	return &cobra.Command{
@@ -553,7 +603,7 @@ func StartFullNodeCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			n := NewFullNode()
 			n.DiscoverPeers()
-			fmt.Printf("Node is connected to %d peers\n", len(n.GetPeers()))
+			fmt.Printf("Node is connected to %d peers\n", len(n.AllPeersAddress()))
 
 			conn, err := grpc.NewClient(n.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 			util.Handle(err)
@@ -563,35 +613,48 @@ func StartFullNodeCommand() *cobra.Command {
 			defer func() {
 				n.SetStatus(StateIdle)
 			}()
-
-			fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
-
 			go func() {
-				mergedBlockChain := n.FetchAndMergeBlockchains()
-
-				n.UpdateBlockchain(mergedBlockChain)
-				fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
-
-				if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-					fmt.Println("No existing blockchain found! Initializing new blockchain.")
-					n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+				if err := syncBlockchain(n); err != nil {
+					log.Printf("Error syncing blockchain: %v", err)
 				}
-				n.GetBlockchain().Print()
-				fmt.Printf("Chain of Node %s has %d blocks\n", n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
-				defer n.GetBlockchain().Database.Close()
-
 			}()
-
 			port := n.GetPort()
 			lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
-			util.Handle(err)
+			if err != nil {
+				log.Fatalf("Failed to listen on port %s: %v", port, err)
+			}
 
-			grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
-			pb.RegisterBlockchainServiceServer(grpcServer, n)
+			m := cmux.New(lis)
+			grpcL := m.MatchWithWriters(
+				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
+			)
+			httpL := m.Match(cmux.HTTP1Fast())
 
-			fmt.Printf("Starting gRPC server on port %s\n", port)
-			if err := grpcServer.Serve(lis); err != nil {
-				util.Handle(err)
+			g := new(errgroup.Group)
+
+			g.Go(func() error {
+				log.Printf("Starting gRPC server on port %s\n", port)
+				if err := grpcServer(grpcL, n); err != nil {
+					return fmt.Errorf("gRPC server error: %v", err)
+				}
+				return nil
+			})
+
+			g.Go(func() error {
+				log.Printf("Starting HTTP server on port %s\n", port)
+				if err := httpServer(httpL); err != nil {
+					return fmt.Errorf("HTTP server error: %v", err)
+				}
+				return nil
+			})
+
+			g.Go(func() error {
+				log.Printf("Starting multiplexer on port %s\n", port)
+				return m.Serve()
+			})
+
+			if err := g.Wait(); err != nil {
+				log.Fatalf("Server error: %v", err)
 			}
 		},
 	}

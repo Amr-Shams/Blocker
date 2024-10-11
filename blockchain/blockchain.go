@@ -24,7 +24,9 @@ type BlockChain struct {
 	LastHash []byte
 	Database *leveldb.DB
 }
-
+func (bc *BlockChain) GetLastHash() []byte {
+    return bc.LastHash
+}
 func DBExist(nodeId string) bool {
 	dbFile := fmt.Sprintf(dbFile, nodeId)
 	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
