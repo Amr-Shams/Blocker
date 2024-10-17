@@ -78,3 +78,16 @@ func HashPubKey(PublicKey []byte) []byte {
 	Handle(err)
 	return hasher.Sum(nil)
 }
+
+func ValidateAmount(ammount int) bool {
+    if ammount < 0 {
+        return false
+    }
+    return true
+}
+
+func StrToInt(s string) int {
+    i, err := strconv.Atoi(s)
+    Handle(err)
+    return i
+}

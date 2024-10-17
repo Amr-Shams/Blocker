@@ -7,3 +7,5 @@ tmp
 go.mod
 go.sum
 Blocker 
+server/blockchain_service.pb.go
+e-wallet/node_modules

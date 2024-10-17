@@ -1,6 +1,9 @@
 package node
 
 import (
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
@@ -9,24 +12,23 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/Amr-Shams/Blocker/blockchain"
 	pb "github.com/Amr-Shams/Blocker/server"
 	"github.com/Amr-Shams/Blocker/util"
+	"github.com/Amr-Shams/Blocker/wallet"
 	"github.com/google/uuid"
 	"github.com/soheilhy/cmux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-
 // ADD(7): a new presentation for the project using HTMX and TailwindCSS
 // ADD(8): new feature
-//for the clock sync between the nodes(version vector clock, logical clock)
+// for the clock sync between the nodes(version vector clock, logical clock)
 const (
 	StateIdle = iota
 	StateMining
@@ -57,6 +59,7 @@ type Node interface {
 	DiscoverPeers()
 	FetchAndMergeBlockchains() []*pb.Block
 	UpdateBlockchain([]*pb.Block)
+	GetWallets() *wallet.Wallets
 }
 type BaseNode struct {
 	ID         int32
@@ -66,6 +69,7 @@ type BaseNode struct {
 	Peers      map[string]*BaseNode
 	Type       string
 	LastTime   time.Time
+	Wallets    *wallet.Wallets
 }
 
 type FullNode struct {
@@ -266,10 +270,45 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Respon
 	fmt.Printf("Added new block with hash: %x\n", block.Hash)
 	return &pb.Response{Status: stateName[s.Status], Success: true}, nil
 }
-
+func mapServerWalletToBlockchainWallet(w *pb.Wallet) *wallet.Wallet {
+	block, _ := pem.Decode([]byte(w.PrivateKey))
+	if block == nil || block.Type != "EC PRIVATE KEY" {
+		log.Fatalf("Failed to decode PEM block containing private key")
+	}
+	priv, err := x509.ParseECPrivateKey(block.Bytes)
+	util.Handle(err)
+	return &wallet.Wallet{
+		PrivateKey: *priv,
+		PublicKey:  w.PublicKey,
+	}
+}
+func mapBlockchainWalletToServerWallet(wallet *wallet.Wallet) *pb.Wallet {
+	privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
+	util.Handle(err)
+	peemPriv := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
+	return &pb.Wallet{
+		PrivateKey: peemPriv,
+		PublicKey:  wallet.PublicKey,
+	}
+}
+func mapServerWalletsToBlockchainWallets(wallets *pb.Wallets) *wallet.Wallets {
+	ws := &wallet.Wallets{Wallets: make(map[string]*wallet.Wallet)}
+	for _, w := range wallets.Wallets {
+		ws.Wallets[string(w.PublicKey)] = mapServerWalletToBlockchainWallet(w)
+	}
+	return ws
+}
+func mapBlockchainWalletsToServerWallets(wallets *wallet.Wallets) *pb.Wallets {
+	ws := &pb.Wallets{}
+	for _, w := range wallets.Wallets {
+		ws.Wallets = append(ws.Wallets, mapBlockchainWalletToServerWallet(w))
+	}
+	return ws
+}
 func (s *BaseNode) Hello(ctx context.Context, in *pb.Request) (*pb.HelloResponse, error) {
 	return &pb.HelloResponse{
 		NodeId: s.ID, Address: s.Address, Status: stateName[s.Status], Type: s.Type, LastHash: s.Blockchain.LastHash, LastUpdate: s.LastTime.Unix(),
+		Wallets: mapBlockchainWalletsToServerWallets(s.GetWallets()),
 	}, nil
 }
 
@@ -295,6 +334,7 @@ func (s *BaseNode) GetPeers(ctx context.Context, in *pb.Empty) (*pb.GetPeersResp
 			Type:       peer.Type,
 			LastHash:   peer.GetLastHash(),
 			LastUpdate: peer.LastTime.Unix(),
+			Wallets:    mapBlockchainWalletsToServerWallets(peer.GetWallets()),
 		})
 	}
 	return &pb.GetPeersResponse{Peers: response}, nil
@@ -316,6 +356,7 @@ func (b *BaseNode) AllPeersAddress() []string {
 func NewFullNode() *FullNode {
 	id := uuid.New().ClockSequence()
 	address := viper.GetString("NodeID")
+	wallets := wallet.LoadWallets(address)
 	return &FullNode{
 		BaseNode: BaseNode{
 			ID:         int32(id),
@@ -324,6 +365,7 @@ func NewFullNode() *FullNode {
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
 			Type:       "full",
+			Wallets:    wallets,
 		},
 	}
 }
@@ -331,6 +373,7 @@ func NewFullNode() *FullNode {
 func NewWalletNode() *WalletNode {
 	id := uuid.New().ClockSequence()
 	address := viper.GetString("NodeID")
+	wallets := wallet.LoadWallets(address)
 	return &WalletNode{
 		BaseNode: BaseNode{
 			ID:         int32(id),
@@ -339,6 +382,7 @@ func NewWalletNode() *WalletNode {
 			Status:     StateIdle,
 			Peers:      make(map[string]*BaseNode),
 			Type:       "wallet",
+			Wallets:    wallets,
 		},
 	}
 }
@@ -371,16 +415,19 @@ func (n *BaseNode) DiscoverPeers() {
 				Address: n.GetAddress(),
 				Status:  stateName[n.Status],
 				Type:    n.Type,
+				Wallets: mapBlockchainWalletsToServerWallets(n.GetWallets()),
 			})
 			if err != nil {
 				fmt.Printf("Failed to add peer %s: %v\n", fullAddress, err)
 				continue
 			}
 			n.Peers[fullAddress] = &BaseNode{
-				ID:      peerResponse.NodeId,
-				Address: peerResponse.Address,
-				Status:  getStatusFromString(peerResponse.Status),
-				Type:    peerResponse.Type,
+				ID:       peerResponse.NodeId,
+				Address:  peerResponse.Address,
+				Status:   getStatusFromString(peerResponse.Status),
+				Type:     peerResponse.Type,
+				LastTime: time.Unix(peerResponse.LastUpdate, 0),
+				Wallets:  mapServerWalletsToBlockchainWallets(peerResponse.Wallets),
 			}
 			peers, _ = client.GetPeers(context.Background(), &pb.Empty{})
 			fmt.Printf("Peers Lenght in client %d\n", len(peers.Peers))
@@ -481,14 +528,137 @@ func grpcServer(l net.Listener, n Node) error {
 	pb.RegisterBlockchainServiceServer(grpcServer, n)
 	return grpcServer.Serve(l)
 }
+func (n *BaseNode) GetAllPairs() map[string]*BaseNode {
+	return n.Peers
+}
+func mapServerTsxToBlockchainTsx(tsx *pb.Transaction) *blockchain.Transaction {
+	Vin := []blockchain.TXInput{}
+	for _, input := range tsx.Vin {
+		Vin = append(Vin, blockchain.TXInput{
+			Txid:      input.Txid,
+			Vout:      int(input.Vout),
+			Signature: input.Signature,
+			PubKey:    input.PubKey,
+		})
+	}
+	Vout := []blockchain.TXOutput{}
+	for _, output := range tsx.Vout {
+		Vout = append(Vout, blockchain.TXOutput{
+			Value:      int(output.Value),
+			PubKeyHash: output.PubKeyHash,
+		})
+	}
+	return &blockchain.Transaction{
+		ID:   tsx.Id,
+		Vin:  Vin,
+		Vout: Vout,
+	}
+}
+func mapBlockchainTsxToServerTsx(tsx *blockchain.Transaction) *pb.Transaction {
+	Vin := []*pb.TXInput{}
+	for _, input := range tsx.Vin {
+		Vin = append(Vin, &pb.TXInput{
+			Txid:      input.Txid,
+			Vout:      int32(input.Vout),
+			Signature: input.Signature,
+			PubKey:    input.PubKey,
+		})
+	}
+	Vout := []*pb.TXOutput{}
+	for _, output := range tsx.Vout {
+		Vout = append(Vout, &pb.TXOutput{
+			Value:      int32(output.Value),
+			PubKeyHash: output.PubKeyHash,
+		})
+	}
+	return &pb.Transaction{
+		Id:   tsx.ID,
+		Vin:  Vin,
+		Vout: Vout,
+	}
+}
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8080") // Allow Vue.js frontend
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-func httpServer(l net.Listener) error {
+		// Handle preflight OPTIONS requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+func (n *BaseNode) GetWallets() *wallet.Wallets {
+	return n.Wallets
+}
+func httpServer(l net.Listener, n *WalletNode) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello World"))
+	// create a get request to get all paris
+	// create a get request to get info about the node
+
+	mux.HandleFunc("/pairs", func(w http.ResponseWriter, r *http.Request) {
+		pairs := n.GetAllPairs()
+		response, _ := json.Marshal(pairs)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
+	})
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+		response, _ := json.Marshal(n)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
+	})
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		response, _ := json.Marshal(stateName[n.Status])
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
+	})
+	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
+		fromWallet := r.FormValue("from")
+		toWallet := r.FormValue("to")
+		amountStr := r.FormValue("amount")
+		amount := util.StrToInt(amountStr)
+		if !util.ValidateAddress(fromWallet) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid from address"))
+			return
+		}
+		if !util.ValidateAddress(toWallet) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid to address"))
+			return
+		}
+		if !util.ValidateAmount(amount) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid amount"))
+			return
+		}
+		ws := n.GetWallets()
+		UTXO := blockchain.UTXOSet{n.GetBlockchain()}
+		tx := ws.NewTransaction(fromWallet, toWallet, amount, &UTXO, n.Address)
+		tsx := mapBlockchainTsxToServerTsx(tx)
+		block, added := n.GetBlockchain().AddBlock([]*blockchain.Transaction{tx})
+		if !added {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Failed to add block"))
+			return
+		}
+		UTXO.Update(block)
+		n.BroadcastBlock(context.Background(), tsx)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Transaction sent"))
+	})
+	mux.HandleFunc("/wallets", func(w http.ResponseWriter, r *http.Request) {
+		ws := n.GetWallets()
+		response, _ := json.Marshal(ws)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
 	})
 	s := &http.Server{
-		Handler: mux, // Fixed field name from 'handler' to 'Handler'
+		Handler: enableCORS(mux),
 	}
 	return s.Serve(l)
 }
@@ -554,7 +724,7 @@ func StartWalletNodeCommand() *cobra.Command {
 			// Start HTTP server
 			g.Go(func() error {
 				log.Printf("Starting HTTP server on port %s\n", port)
-				if err := httpServer(httpL); err != nil {
+				if err := httpServer(httpL, n); err != nil {
 					return fmt.Errorf("HTTP server error: %v", err)
 				}
 				return nil
@@ -628,7 +798,7 @@ func StartFullNodeCommand() *cobra.Command {
 			grpcL := m.MatchWithWriters(
 				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
 			)
-			httpL := m.Match(cmux.HTTP1Fast())
+			//httpL := m.Match(cmux.HTTP1Fast())
 
 			g := new(errgroup.Group)
 
@@ -640,13 +810,14 @@ func StartFullNodeCommand() *cobra.Command {
 				return nil
 			})
 
-			g.Go(func() error {
+			/*g.Go(func() error {
 				log.Printf("Starting HTTP server on port %s\n", port)
-				if err := httpServer(httpL); err != nil {
+				if err := httpServer(httpL,n); err != nil {
 					return fmt.Errorf("HTTP server error: %v", err)
 				}
 				return nil
 			})
+			*/
 
 			g.Go(func() error {
 				log.Printf("Starting multiplexer on port %s\n", port)

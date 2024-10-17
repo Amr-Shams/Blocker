@@ -43,7 +43,6 @@ message Request {
   optional string address = 2;
 }
 message Empty {}
-
 message HelloResponse {
   int32 node_id = 1;
   string address = 2;
@@ -52,13 +51,24 @@ message HelloResponse {
   string type = 5;
   bytes lastHash = 7;
   int64 lastUpdate = 8;
+  wallets wallets = 9;
 }
+message Wallet{
+    bytes privateKey = 1;
+    bytes publicKey = 2;
+}
+
+message wallets{
+    repeated Wallet wallets = 1;
+}
+
 message AddPeerRequest {
     int32 node_id = 1; 
     string address = 2;
     string status = 3;
     string type = 4;
     string version = 5;
+    wallets wallets = 6;
 }
 message AddPeerResponse {
     bool success = 1;

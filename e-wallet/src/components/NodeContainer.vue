@@ -136,6 +136,8 @@
 </template>
 
 <script>
+    import NodeService from "../services/node";
+    const nodeService = new NodeService();
 export default {
   name: "NodeContainer",
   data() {
@@ -163,27 +165,14 @@ export default {
   },
   methods: {
     addNode() {
-      if (this.nodes.length < this.totalRows) {
-        const newNode = {
-          id: Date.now().toString(),
-          Address: `0x${Math.random().toString(16).substr(2, 40)}`,
-          Type: `Type${Math.floor(Math.random() * 5) + 1}`, // Random type for demonstration
-          Status: "Idle",
-        };
-        this.nodes.push(newNode);
-        this.updateWalletStatus(newNode.Address);
-        this.buttonLabel = `${this.nodes.length}/${this.totalRows}`;
-
-        if (this.buttonTimeout) clearTimeout(this.buttonTimeout);
-        this.buttonTimeout = setTimeout(() => {
-          this.buttonLabel = "Add Wallet";
-        }, 2000);
-
-        this.syncInProgress = true;
-        setTimeout(() => {
-          this.syncInProgress = false;
-        }, 3000); // Sync label visible for 3 seconds
-      }
+        this.buttonLabel = "Adding...";
+        nodeService.getPairs().then((node) => {
+            this.nodes.push(node);
+            console.log(node);
+            this.buttonTimeout = setTimeout(() => {
+            this.buttonLabel = "Add Wallet";
+            }, 2000);
+        });  
     },
     async transferAmount() {
       this.transactionInProgress = true;
