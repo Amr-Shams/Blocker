@@ -60,6 +60,7 @@ type Node interface {
 	FetchAndMergeBlockchains() []*pb.Block
 	UpdateBlockchain([]*pb.Block)
 	GetWallets() *wallet.Wallets
+    AddWallet(*wallet.Wallet)
 }
 type BaseNode struct {
 	ID         int32
@@ -220,6 +221,9 @@ func (s *BaseNode) SetBlockchain(bc *blockchain.BlockChain) {
 func (s *BaseNode) GetPort() string {
 	return s.Address[strings.LastIndex(s.Address, ":")+1:]
 }
+func (s *BaseNode) AddWallet(w *wallet.Wallet) {
+    s.Wallets.Wallets[string(w.PublicKey)] = w
+}
 func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
 	s.Peers[in.Address] = &BaseNode{
 		ID:      in.NodeId,
@@ -283,8 +287,11 @@ func mapServerWalletToBlockchainWallet(w *pb.Wallet) *wallet.Wallet {
 	}
 }
 func mapBlockchainWalletToServerWallet(wallet *wallet.Wallet) *pb.Wallet {
-	privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
-	util.Handle(err)
+	if wallet == nil {
+        return &pb.Wallet{}
+    }
+    privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
+    util.Handle(err)
 	peemPriv := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
 	return &pb.Wallet{
 		PrivateKey: peemPriv,
@@ -300,6 +307,9 @@ func mapServerWalletsToBlockchainWallets(wallets *pb.Wallets) *wallet.Wallets {
 }
 func mapBlockchainWalletsToServerWallets(wallets *wallet.Wallets) *pb.Wallets {
 	ws := &pb.Wallets{}
+    if wallets == nil  || wallets.Wallets == nil { 
+        return ws
+    }
 	for _, w := range wallets.Wallets {
 		ws.Wallets = append(ws.Wallets, mapBlockchainWalletToServerWallet(w))
 	}
@@ -410,6 +420,7 @@ func (n *BaseNode) DiscoverPeers() {
 			}
 			peers, _ := client.GetPeers(context.Background(), &pb.Empty{})
 			fmt.Printf("Peers Lenght in client %d\n", len(peers.Peers))
+            fmt.Println("Current node wallets length ", len(n.GetWallets().Wallets))
 			_, err = client.AddPeer(context.Background(), &pb.AddPeerRequest{
 				NodeId:  int32(n.ID),
 				Address: n.GetAddress(),
@@ -657,6 +668,13 @@ func httpServer(l net.Listener, n *WalletNode) error {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(response)
 	})
+    mux.HandleFunc("/AddWallet", func(w http.ResponseWriter, r *http.Request) {
+        wallet := wallet.NewWallet()
+        n.AddWallet(wallet)
+        response, _ := json.Marshal(wallet)
+        w.Header().Set("Content-Type", "application/json")
+        w.Write(response)
+    })
 	s := &http.Server{
 		Handler: enableCORS(mux),
 	}
