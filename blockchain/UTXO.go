@@ -83,7 +83,9 @@ func (u UTXOSet) Reindex() {
 	UTXO := u.BlockChain.FindUTXO()
 	batch := new(leveldb.Batch)
 	for txID, outs := range UTXO {
+		fmt.Printf("key: %s\n", txID)
 		key, err := hex.DecodeString(txID)
+		fmt.Printf("key: %x\n", key)
 		util.Handle(err)
 		key = append(utxoPrefix, key...)
 		batch.Put(key, outs.Serialize())

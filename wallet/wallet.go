@@ -6,9 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/big"
-    "errors"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
 	"github.com/Amr-Shams/Blocker/util"
@@ -31,16 +31,15 @@ func NewWallet() *Wallet {
 
 // Function to generate a new key pair with debug statements
 func NewPairKey() (ecdsa.PrivateKey, []byte) {
-    Curve := elliptic.P256()
-    private, err := ecdsa.GenerateKey(Curve, rand.Reader)
-    util.Handle(err)
+	Curve := elliptic.P256()
+	private, err := ecdsa.GenerateKey(Curve, rand.Reader)
+	util.Handle(err)
 
-
-    if private.D.Cmp(big.NewInt(0)) <= 0 || private.PublicKey.X.Cmp(big.NewInt(0)) <= 0 || private.PublicKey.Y.Cmp(big.NewInt(0)) <= 0 {
-        log.Panic("Error: Invalid key pair")
-    }
-    pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
-    return *private, pubKey
+	if private.D.Cmp(big.NewInt(0)) <= 0 || private.PublicKey.X.Cmp(big.NewInt(0)) <= 0 || private.PublicKey.Y.Cmp(big.NewInt(0)) <= 0 {
+		log.Panic("Error: Invalid key pair")
+	}
+	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
+	return *private, pubKey
 }
 
 func (w *Wallet) GetAddress() string {
@@ -52,64 +51,64 @@ func (w *Wallet) GetAddress() string {
 	return string(address)
 }
 func (w *Wallet) MarshalJSON() ([]byte, error) {
-   mapStringAny := map[string]any{
-       "PrivateKey": map[string]any{
-           "D": w.PrivateKey.D.String(),
-           "PublicKey": map[string]any{
-               "X": w.PrivateKey.PublicKey.X.String(),
-               "Y": w.PrivateKey.PublicKey.Y.String(),
-           },
-       },
-       "PublicKey": hex.EncodeToString(w.PublicKey),
-   }
-   return json.Marshal(mapStringAny)
+	mapStringAny := map[string]any{
+		"PrivateKey": map[string]any{
+			"D": w.PrivateKey.D.String(),
+			"PublicKey": map[string]any{
+				"X": w.PrivateKey.PublicKey.X.String(),
+				"Y": w.PrivateKey.PublicKey.Y.String(),
+			},
+		},
+		"PublicKey": hex.EncodeToString(w.PublicKey),
+	}
+	return json.Marshal(mapStringAny)
 }
 
 func (w *Wallet) UnmarshalJSON(data []byte) error {
-   var mapStringAny map[string]interface{}
-   if err := json.Unmarshal(data, &mapStringAny); err != nil {
-       return err
-   }
+	var mapStringAny map[string]interface{}
+	if err := json.Unmarshal(data, &mapStringAny); err != nil {
+		return err
+	}
 
-   privateKeyMap := mapStringAny["PrivateKey"].(map[string]interface{})
-   publicKeyMap := privateKeyMap["PublicKey"].(map[string]interface{})
-   w.PrivateKey = ecdsa.PrivateKey{}
-   w.PrivateKey.PublicKey = ecdsa.PublicKey{}
-   w.PrivateKey.D = new(big.Int)
-   w.PrivateKey.PublicKey.X = new(big.Int)
-   w.PrivateKey.PublicKey.Y = new(big.Int)
-   w.PrivateKey.PublicKey.Curve = elliptic.P256()
-   w.PublicKey = []byte{}
-   d, ok := new(big.Int).SetString(privateKeyMap["D"].(string), 10)
-    if !ok {
-       err := errors.New("Error: Invalid D")
-       util.Handle(err)
-   }
-   w.PrivateKey.D = d
-   x, ok := new(big.Int).SetString(publicKeyMap["X"].(string), 10)
-   if !ok {
-       err := errors.New("Error: Invalid X")
-       util.Handle(err)
-   }
-   w.PrivateKey.PublicKey.X = x
-   y, ok := new(big.Int).SetString(publicKeyMap["Y"].(string), 10)
-    if !ok {
-        err := errors.New("Error: Invalid Y")
-        util.Handle(err)
-    }
-   w.PrivateKey.PublicKey.Y = y
+	privateKeyMap := mapStringAny["PrivateKey"].(map[string]interface{})
+	publicKeyMap := privateKeyMap["PublicKey"].(map[string]interface{})
+	w.PrivateKey = ecdsa.PrivateKey{}
+	w.PrivateKey.PublicKey = ecdsa.PublicKey{}
+	w.PrivateKey.D = new(big.Int)
+	w.PrivateKey.PublicKey.X = new(big.Int)
+	w.PrivateKey.PublicKey.Y = new(big.Int)
+	w.PrivateKey.PublicKey.Curve = elliptic.P256()
+	w.PublicKey = []byte{}
+	d, ok := new(big.Int).SetString(privateKeyMap["D"].(string), 10)
+	if !ok {
+		err := errors.New("Error: Invalid D")
+		util.Handle(err)
+	}
+	w.PrivateKey.D = d
+	x, ok := new(big.Int).SetString(publicKeyMap["X"].(string), 10)
+	if !ok {
+		err := errors.New("Error: Invalid X")
+		util.Handle(err)
+	}
+	w.PrivateKey.PublicKey.X = x
+	y, ok := new(big.Int).SetString(publicKeyMap["Y"].(string), 10)
+	if !ok {
+		err := errors.New("Error: Invalid Y")
+		util.Handle(err)
+	}
+	w.PrivateKey.PublicKey.Y = y
 
-   w.PrivateKey.PublicKey.Curve = elliptic.P256()
+	w.PrivateKey.PublicKey.Curve = elliptic.P256()
 
-   pubKeyStr, ok := mapStringAny["PublicKey"].(string)
-   if !ok {
-        err := errors.New("Error: Invalid PublicKey")
-        util.Handle(err)
-   }
-   pubKeyBytes, err := hex.DecodeString(pubKeyStr)
-   util.Handle(err)
-   w.PublicKey = pubKeyBytes
-   return nil
+	pubKeyStr, ok := mapStringAny["PublicKey"].(string)
+	if !ok {
+		err := errors.New("Error: Invalid PublicKey")
+		util.Handle(err)
+	}
+	pubKeyBytes, err := hex.DecodeString(pubKeyStr)
+	util.Handle(err)
+	w.PublicKey = pubKeyBytes
+	return nil
 }
 func (w Wallet) String() string {
 	var str string

@@ -60,7 +60,7 @@ type Node interface {
 	FetchAndMergeBlockchains() []*pb.Block
 	UpdateBlockchain([]*pb.Block)
 	GetWallets() *wallet.Wallets
-    AddWallet(*wallet.Wallet)
+	AddWallet(*wallet.Wallet)
 }
 type BaseNode struct {
 	ID         int32
@@ -91,11 +91,6 @@ func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Respons
 
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
-
-	if s.GetBlockchain() != nil && s.GetBlockchain().Database != nil {
-		s.GetBlockchain().Database.Close()
-	}
-
 	bc := blockchain.ContinueBlockChain(s.Address)
 	defer bc.Database.Close()
 
@@ -142,29 +137,53 @@ func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Respons
 
 	return response, nil
 }
-
+// TODOO(9): Merge the two blockchains 
+// the func doesn't work correctly as it should
 func MergeBlockChain(blockchain1, blockchain2 []*pb.Block) []*pb.Block {
-	var mergedBlockChain []*pb.Block
-	addedBlocks := make(map[string]bool)
-	for _, block := range blockchain2 {
-		mergedBlockChain = append(mergedBlockChain, block)
-		addedBlocks[string(block.Hash)] = true
-	}
-	for _, block := range blockchain1 {
-		if _, ok := addedBlocks[string(block.Hash)]; !ok {
-			mergedBlockChain = append(mergedBlockChain, block)
-		} else {
-			mergedBlockChain = append(mergedBlockChain, resolveConflicts(block, block))
+	blockMap := make(map[string]*pb.Block)
+
+	addToMap := func(blocks []*pb.Block) {
+		for _, block := range blocks {
+			blockHash := string(block.Hash)
+			if existing, exists := blockMap[blockHash]; !exists ||
+				(exists && shouldPreferBlock(block, existing)) {
+				blockMap[blockHash] = block
+			}
 		}
 	}
-	return mergedBlockChain
-}
-func resolveConflicts(block1, block2 *pb.Block) *pb.Block {
-	if block1.Timestamp > block2.Timestamp {
-		return block1
-	} else {
-		return block2
+
+	addToMap(blockchain1)
+	addToMap(blockchain2)
+	var latestBlock *pb.Block
+	for _, block := range blockMap {
+		if latestBlock == nil || shouldPreferBlock(block, latestBlock) {
+			latestBlock = block
+		}
 	}
+
+	var mergedChain []*pb.Block
+	currentBlock := latestBlock
+	for currentBlock != nil && len(currentBlock.PrevHash) > 0 {
+		fmt.Print("Current Block: %x\n", currentBlock.Hash)
+		mergedChain = append([]*pb.Block{currentBlock}, mergedChain...)
+		currentBlock = blockMap[string(currentBlock.PrevHash)]
+	}
+	if currentBlock != nil && len(currentBlock.PrevHash) == 0 {
+		mergedChain = append([]*pb.Block{currentBlock}, mergedChain...)
+	}
+	return mergedChain
+}
+
+func shouldPreferBlock(block1, block2 *pb.Block) bool {
+	if block1.Timestamp != block2.Timestamp {
+		return block1.Timestamp > block2.Timestamp
+	}
+
+	if block1.Nonce != block2.Nonce {
+		return block1.Nonce > block2.Nonce
+	}
+
+	return string(block1.Hash) > string(block2.Hash)
 }
 
 func (s *BaseNode) BroadcastBlock(ctx context.Context, in *pb.Transaction) (*pb.Response, error) {
@@ -222,7 +241,7 @@ func (s *BaseNode) GetPort() string {
 	return s.Address[strings.LastIndex(s.Address, ":")+1:]
 }
 func (s *BaseNode) AddWallet(w *wallet.Wallet) {
-    s.Wallets.Wallets[string(w.PublicKey)] = w
+	s.Wallets.Wallets[string(w.PublicKey)] = w
 }
 func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
 	s.Peers[in.Address] = &BaseNode{
@@ -230,6 +249,7 @@ func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddP
 		Address: in.Address,
 		Status:  getStatusFromString(in.Status),
 		Type:    in.Type,
+		Wallets: mapServerWalletsToBlockchainWallets(in.Wallets),
 	}
 	return &pb.AddPeerResponse{Success: true}, nil
 }
@@ -262,15 +282,16 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Transaction) (*pb.Respon
 		Vout: Vout,
 	}
 
-	if s.GetBlockchain() == nil || s.GetBlockchain().Database == nil {
-		s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
-	}
-	block, added := s.GetBlockchain().AddBlock([]*blockchain.Transaction{tsx})
+	bc := blockchain.ContinueBlockChain(s.Address)
+
+	block, added := bc.AddBlock([]*blockchain.Transaction{tsx})
 	if !added {
 		s.Status = StateConnected
 		return &pb.Response{Status: stateName[s.Status], Success: false}, nil
 	}
-
+	utxo := blockchain.UTXOSet{BlockChain: bc}
+	utxo.Update(block)
+	s.SetBlockchain(bc)
 	fmt.Printf("Added new block with hash: %x\n", block.Hash)
 	return &pb.Response{Status: stateName[s.Status], Success: true}, nil
 }
@@ -288,10 +309,10 @@ func mapServerWalletToBlockchainWallet(w *pb.Wallet) *wallet.Wallet {
 }
 func mapBlockchainWalletToServerWallet(wallet *wallet.Wallet) *pb.Wallet {
 	if wallet == nil {
-        return &pb.Wallet{}
-    }
-    privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
-    util.Handle(err)
+		return &pb.Wallet{}
+	}
+	privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
+	util.Handle(err)
 	peemPriv := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
 	return &pb.Wallet{
 		PrivateKey: peemPriv,
@@ -307,9 +328,9 @@ func mapServerWalletsToBlockchainWallets(wallets *pb.Wallets) *wallet.Wallets {
 }
 func mapBlockchainWalletsToServerWallets(wallets *wallet.Wallets) *pb.Wallets {
 	ws := &pb.Wallets{}
-    if wallets == nil  || wallets.Wallets == nil { 
-        return ws
-    }
+	if wallets == nil || wallets.Wallets == nil {
+		return ws
+	}
 	for _, w := range wallets.Wallets {
 		ws.Wallets = append(ws.Wallets, mapBlockchainWalletToServerWallet(w))
 	}
@@ -420,7 +441,7 @@ func (n *BaseNode) DiscoverPeers() {
 			}
 			peers, _ := client.GetPeers(context.Background(), &pb.Empty{})
 			fmt.Printf("Peers Lenght in client %d\n", len(peers.Peers))
-            fmt.Println("Current node wallets length ", len(n.GetWallets().Wallets))
+			fmt.Println("Current node wallets length ", len(n.GetWallets().Wallets))
 			_, err = client.AddPeer(context.Background(), &pb.AddPeerRequest{
 				NodeId:  int32(n.ID),
 				Address: n.GetAddress(),
@@ -473,6 +494,7 @@ func (n *BaseNode) FetchAndMergeBlockchains() []*pb.Block {
 			defer conn.Close()
 			client := pb.NewBlockchainServiceClient(conn)
 			blockchain, err := client.GetBlockChain(context.Background(), &pb.Empty{})
+			fmt.Printf("Fetched blockchain from %s with %d blocks\n", peer.GetAddress(), len(blockchain.Blocks))
 			util.Handle(err)
 			fetchedBlocks <- blockchain
 		}(peer)
@@ -486,12 +508,12 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 	if n.Blockchain == nil || n.Blockchain.Database == nil {
 		n.Blockchain = blockchain.ContinueBlockChain(n.Address)
 	}
-	var updateUtxo = false
-	for i := len(mergedBlockChain) - 1; i >= 0; i-- {
+	for i := 0; i < len(mergedBlockChain); i++ {
 		b := mergedBlockChain[i]
 		tsx := []*blockchain.Transaction{}
 		for _, tx := range b.Transactions {
 			Vin := []blockchain.TXInput{}
+			fmt.Println("Transaction ID ", tx.Id)
 			for _, input := range tx.Vin {
 				Vin = append(Vin, blockchain.TXInput{
 					Txid:      input.Txid,
@@ -524,14 +546,10 @@ func (n *BaseNode) UpdateBlockchain(mergedBlockChain []*pb.Block) {
 		if !proof.Validate() {
 			continue
 		}
-		if added := n.Blockchain.AddEnireBlock(block); added {
-			updateUtxo = true
-		}
+		n.Blockchain.AddEnireBlock(block)
 	}
-	if updateUtxo {
-		UTXO := blockchain.UTXOSet{n.Blockchain}
-		UTXO.Reindex()
-	}
+	UTXOSet := blockchain.UTXOSet{BlockChain: n.Blockchain}
+	UTXOSet.Reindex()
 }
 
 func grpcServer(l net.Listener, n Node) error {
@@ -648,16 +666,20 @@ func httpServer(l net.Listener, n *WalletNode) error {
 			return
 		}
 		ws := n.GetWallets()
-		UTXO := blockchain.UTXOSet{n.GetBlockchain()}
+		bc := blockchain.ContinueBlockChain(n.Address)
+		UTXO := blockchain.UTXOSet{
+			BlockChain: bc,
+		}
 		tx := ws.NewTransaction(fromWallet, toWallet, amount, &UTXO, n.Address)
 		tsx := mapBlockchainTsxToServerTsx(tx)
-		block, added := n.GetBlockchain().AddBlock([]*blockchain.Transaction{tx})
+		block, added := bc.AddBlock([]*blockchain.Transaction{tx})
 		if !added {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Failed to add block"))
 			return
 		}
 		UTXO.Update(block)
+		n.Blockchain = bc
 		n.BroadcastBlock(context.Background(), tsx)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Transaction sent"))
@@ -668,13 +690,13 @@ func httpServer(l net.Listener, n *WalletNode) error {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(response)
 	})
-    mux.HandleFunc("/AddWallet", func(w http.ResponseWriter, r *http.Request) {
-        wallet := wallet.NewWallet()
-        n.AddWallet(wallet)
-        response, _ := json.Marshal(wallet)
-        w.Header().Set("Content-Type", "application/json")
-        w.Write(response)
-    })
+	mux.HandleFunc("/AddWallet", func(w http.ResponseWriter, r *http.Request) {
+		wallet := wallet.NewWallet()
+		n.AddWallet(wallet)
+		response, _ := json.Marshal(wallet)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
+	})
 	s := &http.Server{
 		Handler: enableCORS(mux),
 	}
@@ -764,12 +786,8 @@ func StartWalletNodeCommand() *cobra.Command {
 
 // Helper function to handle blockchain synchronization
 func syncBlockchain(n Node) error {
-	fmt.Printf("Before fetching blockchain length: %d\n", len(n.GetBlockchain().GetBlocks()))
-
 	mergedBlockChain := n.FetchAndMergeBlockchains()
 	n.UpdateBlockchain(mergedBlockChain)
-	fmt.Printf("Merged blockchain length: %d\n", len(mergedBlockChain))
-
 	if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
 		fmt.Println("No existing blockchain found! Initializing new blockchain.")
 		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
