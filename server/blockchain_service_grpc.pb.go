@@ -130,7 +130,6 @@ type BlockchainServiceServer interface {
 	Hello(context.Context, *Request) (*HelloResponse, error)
 	AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error)
 	GetPeers(context.Context, *Empty) (*GetPeersResponse, error)
-
 }
 
 // UnimplementedBlockchainServiceServer must be embedded to have

@@ -80,14 +80,18 @@ func HashPubKey(PublicKey []byte) []byte {
 }
 
 func ValidateAmount(ammount int) bool {
-    if ammount < 0 {
-        return false
-    }
-    return true
+	if ammount < 0 {
+		return false
+	}
+	return true
 }
 
 func StrToInt(s string) int {
-    i, err := strconv.Atoi(s)
-    Handle(err)
-    return i
+	i, err := strconv.Atoi(s)
+	Handle(err)
+	return i
+}
+
+func Int64ToByte(n int64) []byte {
+	return []byte(strconv.FormatInt(n, 10))
 }
