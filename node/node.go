@@ -28,9 +28,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// ADD(7): a new presentation for the project using HTMX and TailwindCSS
-// ADD(8): new feature
-// for the clock sync between the nodes(version vector clock, logical clock)
+// 
+// 
+
 // TESTTTTTTT(10): test the mempool
 // you can start by creating a test cases or clean the code and add comments
 const (
