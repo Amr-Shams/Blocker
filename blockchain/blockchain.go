@@ -27,6 +27,28 @@ type BlockChain struct {
 	Height         int
 }
 
+func (bc *BlockChain) AddTSXMemPool(tx *Transaction) error {
+	err := bc.Database.Put(tx.ID, tx.Serialize(), nil)
+	return err
+}
+func (bc *BlockChain) GetTSXMemPool() (tx *Transaction) {
+	iter := bc.Database.NewIterator(nil, nil)
+	for iter.Next() {
+		var tx Transaction
+		tx.Deserialize(iter.Value())
+		if tx.IsCoinbase() {
+			continue
+		}
+		bc.Database.Delete(tx.ID, nil)
+		return &tx
+	}
+	return nil
+}
+
+func (bc *BlockChain) DeleteTSXMemPool(ID []byte) {
+	bc.Database.Delete(ID, nil)
+}
+
 func (bc *BlockChain) GetLastHash() []byte {
 	return bc.LastHash
 }

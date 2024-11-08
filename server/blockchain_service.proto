@@ -81,10 +81,13 @@ message GetPeersResponse {
 }
 service BlockchainService {
   rpc GetBlockChain (Empty) returns (Response);
-  rpc BroadcastBlock (Transaction) returns (Response);
+  rpc BroadcastTSX (Transaction) returns (Response);
+  rpc BroadcastBlock (Block) returns (Response);
   rpc CheckStatus (Request) returns (Response);
-  rpc AddBlock (Transaction) returns (Response);
+  rpc AddTSXMempool (Transaction) returns (Empty);
+  rpc AddBlock (Block) returns (Response);
   rpc Hello (Request) returns (HelloResponse);
   rpc AddPeer (AddPeerRequest) returns (AddPeerResponse);
   rpc GetPeers (Empty) returns (GetPeersResponse);
+  rpc MineBlock (Empty) returns (Response);
 }

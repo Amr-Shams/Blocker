@@ -20,12 +20,15 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	BlockchainService_GetBlockChain_FullMethodName  = "/server.BlockchainService/GetBlockChain"
+	BlockchainService_BroadcastTSX_FullMethodName   = "/server.BlockchainService/BroadcastTSX"
 	BlockchainService_BroadcastBlock_FullMethodName = "/server.BlockchainService/BroadcastBlock"
 	BlockchainService_CheckStatus_FullMethodName    = "/server.BlockchainService/CheckStatus"
+	BlockchainService_AddTSXMempool_FullMethodName  = "/server.BlockchainService/AddTSXMempool"
 	BlockchainService_AddBlock_FullMethodName       = "/server.BlockchainService/AddBlock"
 	BlockchainService_Hello_FullMethodName          = "/server.BlockchainService/Hello"
 	BlockchainService_AddPeer_FullMethodName        = "/server.BlockchainService/AddPeer"
 	BlockchainService_GetPeers_FullMethodName       = "/server.BlockchainService/GetPeers"
+	BlockchainService_MineBlock_FullMethodName      = "/server.BlockchainService/MineBlock"
 )
 
 // BlockchainServiceClient is the client API for BlockchainService service.
@@ -33,12 +36,15 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BlockchainServiceClient interface {
 	GetBlockChain(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Response, error)
-	BroadcastBlock(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error)
+	BroadcastTSX(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error)
+	BroadcastBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error)
 	CheckStatus(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
-	AddBlock(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error)
+	AddTSXMempool(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Empty, error)
+	AddBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error)
 	Hello(ctx context.Context, in *Request, opts ...grpc.CallOption) (*HelloResponse, error)
 	AddPeer(ctx context.Context, in *AddPeerRequest, opts ...grpc.CallOption) (*AddPeerResponse, error)
 	GetPeers(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GetPeersResponse, error)
+	MineBlock(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Response, error)
 }
 
 type blockchainServiceClient struct {
@@ -59,7 +65,17 @@ func (c *blockchainServiceClient) GetBlockChain(ctx context.Context, in *Empty, 
 	return out, nil
 }
 
-func (c *blockchainServiceClient) BroadcastBlock(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error) {
+func (c *blockchainServiceClient) BroadcastTSX(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Response)
+	err := c.cc.Invoke(ctx, BlockchainService_BroadcastTSX_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blockchainServiceClient) BroadcastBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Response)
 	err := c.cc.Invoke(ctx, BlockchainService_BroadcastBlock_FullMethodName, in, out, cOpts...)
@@ -79,7 +95,17 @@ func (c *blockchainServiceClient) CheckStatus(ctx context.Context, in *Request, 
 	return out, nil
 }
 
-func (c *blockchainServiceClient) AddBlock(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Response, error) {
+func (c *blockchainServiceClient) AddTSXMempool(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, BlockchainService_AddTSXMempool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blockchainServiceClient) AddBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Response)
 	err := c.cc.Invoke(ctx, BlockchainService_AddBlock_FullMethodName, in, out, cOpts...)
@@ -119,17 +145,30 @@ func (c *blockchainServiceClient) GetPeers(ctx context.Context, in *Empty, opts 
 	return out, nil
 }
 
+func (c *blockchainServiceClient) MineBlock(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Response, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Response)
+	err := c.cc.Invoke(ctx, BlockchainService_MineBlock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BlockchainServiceServer is the server API for BlockchainService service.
 // All implementations must embed UnimplementedBlockchainServiceServer
 // for forward compatibility.
 type BlockchainServiceServer interface {
 	GetBlockChain(context.Context, *Empty) (*Response, error)
-	BroadcastBlock(context.Context, *Transaction) (*Response, error)
+	BroadcastTSX(context.Context, *Transaction) (*Response, error)
+	BroadcastBlock(context.Context, *Block) (*Response, error)
 	CheckStatus(context.Context, *Request) (*Response, error)
-	AddBlock(context.Context, *Transaction) (*Response, error)
+	AddTSXMempool(context.Context, *Transaction) (*Empty, error)
+	AddBlock(context.Context, *Block) (*Response, error)
 	Hello(context.Context, *Request) (*HelloResponse, error)
 	AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error)
 	GetPeers(context.Context, *Empty) (*GetPeersResponse, error)
+	MineBlock(context.Context, *Empty) (*Response, error)
 }
 
 // UnimplementedBlockchainServiceServer must be embedded to have
@@ -142,13 +181,19 @@ type UnimplementedBlockchainServiceServer struct{}
 func (UnimplementedBlockchainServiceServer) GetBlockChain(context.Context, *Empty) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlockChain not implemented")
 }
-func (UnimplementedBlockchainServiceServer) BroadcastBlock(context.Context, *Transaction) (*Response, error) {
+func (UnimplementedBlockchainServiceServer) BroadcastTSX(context.Context, *Transaction) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BroadcastTSX not implemented")
+}
+func (UnimplementedBlockchainServiceServer) BroadcastBlock(context.Context, *Block) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BroadcastBlock not implemented")
 }
 func (UnimplementedBlockchainServiceServer) CheckStatus(context.Context, *Request) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckStatus not implemented")
 }
-func (UnimplementedBlockchainServiceServer) AddBlock(context.Context, *Transaction) (*Response, error) {
+func (UnimplementedBlockchainServiceServer) AddTSXMempool(context.Context, *Transaction) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddTSXMempool not implemented")
+}
+func (UnimplementedBlockchainServiceServer) AddBlock(context.Context, *Block) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddBlock not implemented")
 }
 func (UnimplementedBlockchainServiceServer) Hello(context.Context, *Request) (*HelloResponse, error) {
@@ -159,6 +204,9 @@ func (UnimplementedBlockchainServiceServer) AddPeer(context.Context, *AddPeerReq
 }
 func (UnimplementedBlockchainServiceServer) GetPeers(context.Context, *Empty) (*GetPeersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers not implemented")
+}
+func (UnimplementedBlockchainServiceServer) MineBlock(context.Context, *Empty) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MineBlock not implemented")
 }
 func (UnimplementedBlockchainServiceServer) mustEmbedUnimplementedBlockchainServiceServer() {}
 func (UnimplementedBlockchainServiceServer) testEmbeddedByValue()                           {}
@@ -199,8 +247,26 @@ func _BlockchainService_GetBlockChain_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _BlockchainService_BroadcastBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _BlockchainService_BroadcastTSX_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Transaction)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).BroadcastTSX(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_BroadcastTSX_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).BroadcastTSX(ctx, req.(*Transaction))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlockchainService_BroadcastBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Block)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -212,7 +278,7 @@ func _BlockchainService_BroadcastBlock_Handler(srv interface{}, ctx context.Cont
 		FullMethod: BlockchainService_BroadcastBlock_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BlockchainServiceServer).BroadcastBlock(ctx, req.(*Transaction))
+		return srv.(BlockchainServiceServer).BroadcastBlock(ctx, req.(*Block))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -235,8 +301,26 @@ func _BlockchainService_CheckStatus_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _BlockchainService_AddBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _BlockchainService_AddTSXMempool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Transaction)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).AddTSXMempool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_AddTSXMempool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).AddTSXMempool(ctx, req.(*Transaction))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlockchainService_AddBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Block)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -248,7 +332,7 @@ func _BlockchainService_AddBlock_Handler(srv interface{}, ctx context.Context, d
 		FullMethod: BlockchainService_AddBlock_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BlockchainServiceServer).AddBlock(ctx, req.(*Transaction))
+		return srv.(BlockchainServiceServer).AddBlock(ctx, req.(*Block))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -307,6 +391,24 @@ func _BlockchainService_GetPeers_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BlockchainService_MineBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).MineBlock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_MineBlock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).MineBlock(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BlockchainService_ServiceDesc is the grpc.ServiceDesc for BlockchainService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -319,12 +421,20 @@ var BlockchainService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BlockchainService_GetBlockChain_Handler,
 		},
 		{
+			MethodName: "BroadcastTSX",
+			Handler:    _BlockchainService_BroadcastTSX_Handler,
+		},
+		{
 			MethodName: "BroadcastBlock",
 			Handler:    _BlockchainService_BroadcastBlock_Handler,
 		},
 		{
 			MethodName: "CheckStatus",
 			Handler:    _BlockchainService_CheckStatus_Handler,
+		},
+		{
+			MethodName: "AddTSXMempool",
+			Handler:    _BlockchainService_AddTSXMempool_Handler,
 		},
 		{
 			MethodName: "AddBlock",
@@ -341,6 +451,10 @@ var BlockchainService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPeers",
 			Handler:    _BlockchainService_GetPeers_Handler,
+		},
+		{
+			MethodName: "MineBlock",
+			Handler:    _BlockchainService_MineBlock_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
