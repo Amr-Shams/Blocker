@@ -31,8 +31,8 @@ import (
 //
 //
 
-// 
-
+// FIXMEEEE(11): BroadcastBlock/TSX are not working
+// possible solution: check the logic of floating the transactions to the network
 const (
 	StateIdle = iota
 	StateMining
@@ -386,7 +386,8 @@ func (s *BaseNode) broadcastToPeer(ctx context.Context, peer *FullNode, in *pb.T
 	if _, err = client.AddTSXMempool(ctx, in); err != nil {
 		return fmt.Errorf("failed to AddTSXMempool: %v", err)
 	}
-
+	// FIXME(12): wrong implementation for the floading algo
+	// expected to recusively broadcast to all peers except the one that sent the transaction to the current node
 	for _, p := range peer.FullPeers {
 		if err := s.broadcastToPeer(ctx, p, in); err != nil {
 			return err
