@@ -55,8 +55,7 @@ message HelloResponse {
   int64 height = 10;
 }
 message Wallet{
-    bytes privateKey = 1;
-    bytes publicKey = 2;
+    bytes publicKey = 1;
 }
 
 message wallets{

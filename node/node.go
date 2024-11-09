@@ -2,9 +2,7 @@ package node
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
@@ -22,17 +20,19 @@ import (
 	"github.com/soheilhy/cmux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/exp/rand"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// 
+//
+//
+
 // 
 
-// TESTTTTTTT(10): test the mempool
-// you can start by creating a test cases or clean the code and add comments
 const (
 	StateIdle = iota
 	StateMining
@@ -75,6 +75,8 @@ type Node interface {
 	AddTSXMempool(context.Context, *pb.Transaction) (*pb.Empty, error)
 	CloseDB()
 	GetAllPeers() map[string]*BaseNode
+	GetWalletPeers() map[string]*WalletNode
+	GetFullPeers() map[string]*FullNode
 	MineBlock(context.Context, *pb.Empty) (*pb.Response, error)
 }
 type FUllNode interface {
@@ -106,6 +108,12 @@ type WalletNode struct {
 
 var dbMutex sync.Mutex
 
+func (n *BaseNode) GetWalletPeers() map[string]*WalletNode {
+	return n.WalletPeers
+}
+func (n *BaseNode) GetFullPeers() map[string]*FullNode {
+	return n.FullPeers
+}
 func (n *BaseNode) CloseDB() {
 	n.Blockchain.Database.Close()
 }
@@ -117,11 +125,20 @@ func (n *BaseNode) GetType() string {
 }
 
 func (n *FullNode) AddMemPool(tsx *blockchain.Transaction) error {
+	n.Status = StateMining
+	defer func() {
+		n.Status = StateIdle
+		n.CloseDB()
+	}()
+	if n.Blockchain == nil {
+		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+	}
 	return n.Blockchain.AddTSXMemPool(tsx)
 }
 func (n *FullNode) GetMemPool() *blockchain.Transaction {
 	return n.Blockchain.GetTSXMemPool()
 }
+
 func (n *FullNode) DeleteTSXMemPool(ID []byte) {
 	n.Blockchain.DeleteTSXMemPool(ID)
 }
@@ -183,7 +200,9 @@ func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, e
 	s.Status = StateMining
 	defer func() {
 		s.Status = StateIdle
+		s.CloseDB()
 	}()
+	s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	tsx := s.GetMemPool()
@@ -194,9 +213,9 @@ func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, e
 	if err != true {
 		return &pb.Response{Success: false}, nil
 	}
-	s.GetBlockchain().DeleteTSXMemPool(tsx.ID)
 	UTXOSet := blockchain.UTXOSet{BlockChain: s.GetBlockchain()}
 	UTXOSet.Update(block)
+	s.GetBlockchain().DeleteTSXMemPool(tsx.ID)
 	return &pb.Response{Success: true}, nil
 }
 func (s *FullNode) AddTSXMempool(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
@@ -364,9 +383,6 @@ func (s *BaseNode) broadcastToPeer(ctx context.Context, peer *FullNode, in *pb.T
 
 	client := pb.NewBlockchainServiceClient(conn)
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
 	if _, err = client.AddTSXMempool(ctx, in); err != nil {
 		return fmt.Errorf("failed to AddTSXMempool: %v", err)
 	}
@@ -466,27 +482,16 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	return &pb.Response{Success: true}, nil
 }
 func mapServerWalletToBlockchainWallet(w *pb.Wallet) *wallet.Wallet {
-	block, _ := pem.Decode([]byte(w.PrivateKey))
-	if block == nil || block.Type != "EC PRIVATE KEY" {
-		log.Fatalf("Failed to decode PEM block containing private key")
-	}
-	priv, err := x509.ParseECPrivateKey(block.Bytes)
-	util.Handle(err)
 	return &wallet.Wallet{
-		PrivateKey: *priv,
-		PublicKey:  w.PublicKey,
+		PublicKey: w.PublicKey,
 	}
 }
 func mapBlockchainWalletToServerWallet(wallet *wallet.Wallet) *pb.Wallet {
 	if wallet == nil {
 		return &pb.Wallet{}
 	}
-	privBytes, err := x509.MarshalECPrivateKey(&wallet.PrivateKey)
-	util.Handle(err)
-	peemPriv := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
 	return &pb.Wallet{
-		PrivateKey: peemPriv,
-		PublicKey:  wallet.PublicKey,
+		PublicKey: wallet.PublicKey,
 	}
 }
 func mapServerWalletsToBlockchainWallets(wallets *pb.Wallets) *wallet.Wallets {
@@ -685,8 +690,17 @@ func (n *BaseNode) DiscoverPeers() (bestPeer *BaseNode) {
 				}
 			}
 			// Identify the "best" peer based on blockchain height
-			if bestPeer == nil || bestPeer.Blockchain.GetHeight() < n.FullPeers[fullAddress].Blockchain.GetHeight() {
-				bestPeer = &n.FullPeers[fullAddress].BaseNode
+			currentPeer := n.FullPeers[fullAddress]
+			if currentPeer == nil {
+				continue // Skip nil peers
+			}
+
+			if bestPeer == nil {
+				bestPeer = &currentPeer.BaseNode
+			} else if currentPeer.BaseNode.Blockchain != nil &&
+				bestPeer.Blockchain != nil &&
+				bestPeer.Blockchain.GetHeight() < currentPeer.BaseNode.Blockchain.GetHeight() {
+				bestPeer = &currentPeer.BaseNode
 			}
 		}
 	}
@@ -970,8 +984,29 @@ func httpServer(l net.Listener, n Node) error {
 		}
 		tsx := mapBlockchainTsxToServerTsx(tx)
 		n.BroadcastTSX(context.Background(), tsx)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Transaction sent"))
+		miningNode := SelectRandomFullNode(n)
+		if miningNode != nil {
+			fmt.Println("Mining block with node: ", miningNode.GetAddress())
+			conn, err := grpc.NewClient(miningNode.GetAddress(), grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")))
+			if err != nil {
+				fmt.Println("Error creating client: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Error creating client"))
+			}
+			defer conn.Close()
+			client := pb.NewBlockchainServiceClient(conn)
+			_, err = client.MineBlock(context.Background(), &pb.Empty{})
+			if err != nil {
+				fmt.Printf("Error mining block: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Error mining block"))
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Transaction sent"))
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("No mining node available"))
+		}
 	})
 	mux.HandleFunc("/wallets", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -997,6 +1032,25 @@ func httpServer(l net.Listener, n Node) error {
 func syncMemPool(n FullNode, tx *blockchain.Transaction) {
 	n.AddMemPool(tx)
 }
+func SelectRandomFullNode(n Node) *FullNode {
+	peers := n.GetFullPeers()
+	if len(peers) == 0 {
+		return nil
+	}
+	idx := rand.Intn(len(peers))
+	for _, peer := range peers {
+		if idx == 0 {
+			if peer.GetStatus() == StateIdle {
+				return peer
+			} else {
+				idx = rand.Intn(len(peers))
+			}
+		}
+		idx--
+	}
+	return nil
+}
+
 func StartWalletNodeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "run2",

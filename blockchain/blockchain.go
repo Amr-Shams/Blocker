@@ -18,6 +18,7 @@ import (
 const (
 	dbFile  = "./tmp/blockchain_%s.data"
 	genesis = "First block"
+	key_tsx = "tsx"
 )
 
 type BlockChain struct {
@@ -28,18 +29,21 @@ type BlockChain struct {
 }
 
 func (bc *BlockChain) AddTSXMemPool(tx *Transaction) error {
-	err := bc.Database.Put(tx.ID, tx.Serialize(), nil)
+	key := fmt.Sprintf("%s_%s", key_tsx, hex.EncodeToString(tx.ID))
+	err := bc.Database.Put([]byte(key), tx.Serialize(), nil)
 	return err
 }
 func (bc *BlockChain) GetTSXMemPool() (tx *Transaction) {
 	iter := bc.Database.NewIterator(nil, nil)
 	for iter.Next() {
 		var tx Transaction
+		if !bytes.Contains(iter.Key(), []byte(key_tsx)) {
+			continue
+		}
 		tx.Deserialize(iter.Value())
 		if tx.IsCoinbase() {
 			continue
 		}
-		bc.Database.Delete(tx.ID, nil)
 		return &tx
 	}
 	return nil
