@@ -27,10 +27,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-//
-//
-
-// 
+// FIXMEE(13): Minining woeking correclty
+// but the block is not floaded to the network correctly(though the broadcast is working correctly)
 
 const (
 	StateIdle = iota
@@ -854,7 +852,9 @@ func SyncBlockchain(n Node, bestPeer *BaseNode) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch blockchain: %v", err)
 	}
-
+	if len(blocks) < n.GetBlockchain().GetHeight() {
+		return nil
+	}
 	if err := n.UpdateBlockchain(blocks); err != nil {
 		return fmt.Errorf("failed to update blockchain: %v", err)
 	}
