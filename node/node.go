@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
@@ -24,15 +23,15 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 //
 //
 
-// FIXMEEEE(11): BroadcastBlock/TSX are not working
-// possible solution: check the logic of floating the transactions to the network
+// 
+
 const (
 	StateIdle = iota
 	StateMining
@@ -41,7 +40,8 @@ const (
 )
 
 var (
-	availablePorts = []string{"5001", "5002", "5003", "5004", "5005"}
+	availablePorts   = []string{"5001", "5002", "5003", "5004", "5005"}
+	MAX_MEMPOOL_SIZE = 10
 )
 
 var stateName = map[int]string{
@@ -78,6 +78,7 @@ type Node interface {
 	GetWalletPeers() map[string]*WalletNode
 	GetFullPeers() map[string]*FullNode
 	MineBlock(context.Context, *pb.Empty) (*pb.Response, error)
+	connectToPeer(string) (*grpc.ClientConn, error)
 }
 type FUllNode interface {
 	Node
@@ -87,19 +88,21 @@ type FUllNode interface {
 }
 
 type BaseNode struct {
-	ID          int32
-	Address     string
-	Status      int
-	Blockchain  *blockchain.BlockChain
-	WalletPeers map[string]*WalletNode
-	FullPeers   map[string]*FullNode
-	Type        string
-	Wallets     *wallet.Wallets
+	ID             int32
+	Address        string
+	Status         int
+	Blockchain     *blockchain.BlockChain
+	WalletPeers    map[string]*WalletNode
+	FullPeers      map[string]*FullNode
+	Type           string
+	Wallets        *wallet.Wallets
+	ConnectionPool map[string]*grpc.ClientConn
 	pb.UnimplementedBlockchainServiceServer
 }
 
 type FullNode struct {
 	BaseNode
+	MemPool *blockchain.MemPool
 }
 
 type WalletNode struct {
@@ -115,7 +118,7 @@ func (n *BaseNode) GetFullPeers() map[string]*FullNode {
 	return n.FullPeers
 }
 func (n *BaseNode) CloseDB() {
-	n.Blockchain.Database.Close()
+	n.Blockchain.Close()
 }
 func (n *BaseNode) GetStatus() int {
 	return n.Status
@@ -128,19 +131,18 @@ func (n *FullNode) AddMemPool(tsx *blockchain.Transaction) error {
 	n.Status = StateMining
 	defer func() {
 		n.Status = StateIdle
-		n.CloseDB()
 	}()
 	if n.Blockchain == nil {
 		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
 	}
-	return n.Blockchain.AddTSXMemPool(tsx)
+	return n.MemPool.AddTx(tsx)
 }
 func (n *FullNode) GetMemPool() *blockchain.Transaction {
-	return n.Blockchain.GetTSXMemPool()
+	return n.MemPool.GetTx()
 }
 
 func (n *FullNode) DeleteTSXMemPool(ID []byte) {
-	n.Blockchain.DeleteTSXMemPool(ID)
+	n.MemPool.DeleteTx(string(ID))
 }
 func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Response, error) {
 	s.Status = StateConnected
@@ -202,21 +204,28 @@ func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, e
 		s.Status = StateIdle
 		s.CloseDB()
 	}()
+	fmt.Println("Mining Block from mempool")
 	s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	tsx := s.GetMemPool()
+	fmt.Println("Transaction from mempool", tsx)
 	if tsx == nil {
 		return &pb.Response{Success: false}, nil
 	}
-	block, err := s.GetBlockchain().AddBlock([]*blockchain.Transaction{tsx})
-	if err != true {
+	block, err := s.Blockchain.AddBlock([]*blockchain.Transaction{tsx})
+	if !err {
 		return &pb.Response{Success: false}, nil
 	}
 	UTXOSet := blockchain.UTXOSet{BlockChain: s.GetBlockchain()}
+	fmt.Println("Reindexing UTXO Set")
 	UTXOSet.Update(block)
-	s.GetBlockchain().DeleteTSXMemPool(tsx.ID)
-	return &pb.Response{Success: true}, nil
+	s.DeleteTSXMemPool(tsx.ID)
+	serverBlocks := mapClientBlocksToServerBlocks([]*blockchain.Block{block})
+	go func() {
+		s.BroadcastBlock(context.Background(), serverBlocks[0])
+	}()
+	return &pb.Response{Success: true, Blocks: serverBlocks}, nil
 }
 func (s *FullNode) AddTSXMempool(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
 	s.Status = StateConnected
@@ -230,6 +239,7 @@ func (s *FullNode) AddTSXMempool(ctx context.Context, in *pb.Transaction) (*pb.E
 	if err != nil {
 		return &pb.Empty{}, err
 	}
+	fmt.Println("Transaction added to mempool")
 	return &pb.Empty{}, nil
 }
 func MergeBlockChain(blockchain1, blockchain2 []*pb.Block) []*pb.Block {
@@ -289,18 +299,35 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Res
 		wg.Add(1)
 		go func(peer *FullNode) {
 			defer wg.Done()
-			fmt.Printf("Sending block to %s\n", peer.GetAddress())
-			conn, err := grpc.NewClient(peer.GetAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			conn, err := s.connectToPeer(peer.GetAddress())
 			if err != nil {
 				fmt.Printf("Failed to connect to %s: %v\n", peer.GetAddress(), err)
 				return
 			}
-			defer conn.Close()
 			client := pb.NewBlockchainServiceClient(conn)
 			added, err := client.AddBlock(ctx, block)
 			if added.Success {
 				fmt.Printf("Block sent to %s\n", peer.GetAddress())
 				peer.BroadcastBlock(ctx, block)
+			} else {
+				fmt.Printf("Block not sent to %s\n", peer.GetAddress())
+			}
+		}(peer)
+	}
+	for _, peer := range s.WalletPeers {
+		wg.Add(1)
+		go func(peer *WalletNode) {
+			defer wg.Done()
+			fmt.Printf("Sending block to %s\n", peer.GetAddress())
+			conn, err := s.connectToPeer(peer.GetAddress())
+			if err != nil {
+				fmt.Printf("Failed to connect to %s: %v\n", peer.GetAddress(), err)
+				return
+			}
+			client := pb.NewBlockchainServiceClient(conn)
+			added, err := client.AddBlock(ctx, block)
+			if added.Success {
+				fmt.Printf("Block sent to %s\n", peer.GetAddress())
 			} else {
 				fmt.Printf("Block not sent to %s\n", peer.GetAddress())
 			}
@@ -315,86 +342,62 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Res
 // @return: chan *pb.Response - channel for response
 // @return: chan error - channel for errors
 func (s *BaseNode) BroadcastTSX(ctx context.Context, in *pb.Transaction) (*pb.Response, error) {
-	responseChan := make(chan *pb.Response, 1)
-	errChan := make(chan error, 1)
-
-	go func() {
-		defer close(responseChan)
-		defer close(errChan)
-
-		s.Status = StateConnected
-		defer func() {
-			s.Status = StateIdle
-		}()
-
-		errorCount := int32(0)
-		successCount := int32(0)
-		var wg sync.WaitGroup
-
-		for _, peer := range s.FullPeers {
-			wg.Add(1)
-			go func(peer *FullNode) {
-				defer wg.Done()
-
-				select {
-				case <-ctx.Done():
-					atomic.AddInt32(&errorCount, 1)
-					return
-				default:
-					if err := s.broadcastToPeer(ctx, peer, in); err != nil {
-						atomic.AddInt32(&errorCount, 1)
-						fmt.Printf("Broadcast to %s failed: %v\n", peer.GetAddress(), err)
-					} else {
-						atomic.AddInt32(&successCount, 1)
-					}
-				}
-			}(peer)
-		}
-
-		wg.Wait()
-
-		if errorCount == int32(len(s.FullPeers)) {
-			errChan <- fmt.Errorf("broadcast failed to all peers")
-			return
-		}
-
-		responseChan <- &pb.Response{
-			Status:  stateName[s.Status],
-			Success: successCount > 0,
-		}
+	s.Status = StateConnected
+	defer func() {
+		s.Status = StateIdle
 	}()
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(s.FullPeers))
+	for _, peer := range s.FullPeers {
+		wg.Add(1)
+		go func(peer *FullNode) {
+			defer wg.Done()
+			if err := s.broadcastToFullNode(ctx, in, peer); err != nil {
+				errChan <- err
+			}
+		}(peer)
+	}
+	wg.Wait()
+	close(errChan)
+	if len(errChan) > 0 {
+		return &pb.Response{Status: stateName[s.Status], Success: false}, <-errChan
+	}
 
-	return <-responseChan, <-errChan
+	return &pb.Response{Status: stateName[s.Status], Success: true}, nil
 }
-
-// @input: ctx context.Context - context for the operation
-// @input: peer *FullNode - peer to broadcast to
-// @input: in *pb.Transaction - transaction to broadcast
-// @return: error - error if any occurred during broadcast
-func (s *BaseNode) broadcastToPeer(ctx context.Context, peer *FullNode, in *pb.Transaction) error {
-	conn, err := grpc.NewClient(
-		peer.GetAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+func (s *BaseNode) broadcastToFullNode(ctx context.Context, in *pb.Transaction, peer *FullNode) error {
+	fmt.Printf("Sending TSX to full node %s\n", peer.GetAddress())
+	conn, err := s.connectToPeer(peer.GetAddress())
 	if err != nil {
-		return fmt.Errorf("failed to connect: %v", err)
+		return fmt.Errorf("failed to connect to %s: %v", peer.GetAddress(), err)
 	}
-	defer conn.Close()
-
 	client := pb.NewBlockchainServiceClient(conn)
-
-	if _, err = client.AddTSXMempool(ctx, in); err != nil {
-		return fmt.Errorf("failed to AddTSXMempool: %v", err)
-	}
-	// FIXME(12): wrong implementation for the floading algo
-	// expected to recusively broadcast to all peers except the one that sent the transaction to the current node
-	for _, p := range peer.FullPeers {
-		if err := s.broadcastToPeer(ctx, p, in); err != nil {
-			return err
-		}
+	_, err = client.AddTSXMempool(ctx, in)
+	if err != nil {
+		return fmt.Errorf("failed to AddTSXMempool for %s: %v", peer.GetAddress(), err)
 	}
 	return nil
 }
+
+// TODO: Ignore the WalletNode for now
+// it is just used to notify the wallet about the transaction
+
+// func (s *BaseNode) broadcastToWalletNode(ctx context.Context, in *pb.Transaction, peer *WalletNode) error {
+//     fmt.Printf("Sending TSX to wallet node %s\n", peer.GetAddress())
+//     conn, err := s.connectToPeer(peer.GetAddress())
+//     if err != nil {
+//         return fmt.Errorf("failed to connect to %s: %v", peer.GetAddress(), err)
+//     }
+//     client := pb.NewBlockchainServiceClient(conn)
+
+//     // For wallet nodes, we only notify about the transaction
+//     _, err = client.NotifyTransaction(ctx, in) // You'll need to add this method to your protobuf service
+//     if err != nil {
+//         return fmt.Errorf("failed to notify wallet %s: %v", peer.GetAddress(), err)
+//     }
+
+//	    return nil
+//	}
 func (s *BaseNode) GetAddress() string {
 	return s.Address
 }
@@ -454,7 +457,7 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	s.Status = StateMining
 	defer func() {
 		s.Status = StateIdle
-		s.Blockchain.Database.Close()
+		s.CloseDB()
 	}()
 	fmt.Println("Received new block")
 	dbMutex.Lock()
@@ -474,6 +477,9 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	proof := blockchain.NewProof(block)
 	if !proof.Validate() {
 		return &pb.Response{Success: false}, nil
+	}
+	if s.Blockchain == nil {
+		s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
 	}
 	if err := s.Blockchain.AddEnireBlock(block); !err {
 		return &pb.Response{Success: false}, nil
@@ -592,15 +598,17 @@ func NewFullNode() *FullNode {
 	wallets := wallet.LoadWallets(address)
 	return &FullNode{
 		BaseNode: BaseNode{
-			ID:          int32(id),
-			Address:     address,
-			Blockchain:  blockchain.ContinueBlockChain(address),
-			Status:      StateIdle,
-			FullPeers:   make(map[string]*FullNode),
-			WalletPeers: make(map[string]*WalletNode),
-			Type:        "full",
-			Wallets:     wallets,
+			ID:             int32(id),
+			Address:        address,
+			Blockchain:     blockchain.ContinueBlockChain(address),
+			Status:         StateIdle,
+			FullPeers:      make(map[string]*FullNode),
+			WalletPeers:    make(map[string]*WalletNode),
+			Type:           "full",
+			Wallets:        wallets,
+			ConnectionPool: make(map[string]*grpc.ClientConn),
 		},
+		MemPool: blockchain.NewMemPool(MAX_MEMPOOL_SIZE),
 	}
 }
 
@@ -610,31 +618,59 @@ func NewWalletNode() *WalletNode {
 	wallets := wallet.LoadWallets(address)
 	return &WalletNode{
 		BaseNode: BaseNode{
-			ID:          int32(id),
-			Address:     address,
-			Blockchain:  blockchain.ContinueBlockChain(address),
-			Status:      StateIdle,
-			FullPeers:   make(map[string]*FullNode),
-			WalletPeers: make(map[string]*WalletNode),
-			Type:        "wallet",
-			Wallets:     wallets,
+			ID:             int32(id),
+			Address:        address,
+			Blockchain:     blockchain.ContinueBlockChain(address),
+			Status:         StateIdle,
+			FullPeers:      make(map[string]*FullNode),
+			WalletPeers:    make(map[string]*WalletNode),
+			Type:           "wallet",
+			Wallets:        wallets,
+			ConnectionPool: make(map[string]*grpc.ClientConn),
 		},
 	}
 }
+func (n *BaseNode) connectToPeer(address string) (*grpc.ClientConn, error) {
+	if n.ConnectionPool == nil {
+		dbMutex.Lock()
+		if n.ConnectionPool == nil {
+			n.ConnectionPool = make(map[string]*grpc.ClientConn)
+		}
+		dbMutex.Unlock()
+	}
 
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	if conn, exists := n.ConnectionPool[address]; exists {
+		state := conn.GetState()
+		if state == connectivity.Ready || state == connectivity.Idle {
+			return conn, nil
+		}
+		conn.Close()
+		delete(n.ConnectionPool, address)
+	}
+
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection to %s: %v", address, err)
+	}
+
+	n.ConnectionPool[address] = conn
+	return conn, nil
+}
 func (n *BaseNode) DiscoverPeers() (bestPeer *BaseNode) {
 
 	// Step 1: Gather metadata from each peer
+	n.ConnectionPool = make(map[string]*grpc.ClientConn)
 	for _, port := range availablePorts {
 		fullAddress := "localhost:" + port
 		if fullAddress != n.Address {
-			conn, err := grpc.NewClient(fullAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			conn, err := n.connectToPeer(fullAddress)
 			if err != nil {
-				fmt.Printf("Failed to connect to %s\n", fullAddress)
+				fmt.Printf("Failed to connect to %s: %v\n", fullAddress, err)
 				continue
 			}
-			defer conn.Close()
-
 			client := pb.NewBlockchainServiceClient(conn)
 			peerResponse, err := client.Hello(context.Background(), &pb.Request{})
 			if err != nil {
@@ -716,23 +752,17 @@ func (n *BaseNode) FetchBlockchain(peer *BaseNode) ([]*pb.Block, error) {
 		return nil, nil
 	}
 	fmt.Printf("Fetching blockchain from peer %s\n", peer.GetAddress())
-	conn, err := grpc.NewClient(
-		peer.GetAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := n.connectToPeer(peer.GetAddress())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to peer %s: %v", peer.GetAddress(), err)
 	}
-	defer conn.Close()
-
 	client := pb.NewBlockchainServiceClient(conn)
 	response, err := client.GetBlockChain(context.Background(), &pb.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch blockchain from peer %s: %v", peer.GetAddress(), err)
 	}
 
-	fmt.Printf("Fetched blockchain from peer %s with %d blocks\n",
-		peer.GetAddress(), len(response.Blocks))
+	fmt.Printf("Fetched blockchain from peer %s with %d blocks\n", peer.GetAddress(), len(response.Blocks))
 	return response.Blocks, nil
 }
 
@@ -814,7 +844,9 @@ func convertProtoTransaction(tx *pb.Transaction) *blockchain.Transaction {
 // @input: bestPeer *BaseNode - peer to sync blockchain from
 // @return: error - error if any occurred during sync
 func SyncBlockchain(n Node, bestPeer *BaseNode) error {
-	defer n.GetBlockchain().Database.Close()
+	defer func() {
+		n.CloseDB()
+	}()
 	blocks, err := n.FetchBlockchain(bestPeer)
 	if blocks == nil {
 		return nil
@@ -832,7 +864,6 @@ func SyncBlockchain(n Node, bestPeer *BaseNode) error {
 		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
 	}
 
-	n.GetBlockchain().Print()
 	fmt.Printf("Chain of Node %s has %d blocks\n",
 		n.GetAddress(), len(n.GetBlockchain().GetBlocks()))
 
@@ -898,6 +929,26 @@ func mapBlockchainTsxToServerTsx(tsx *blockchain.Transaction) *pb.Transaction {
 		Vin:  Vin,
 		Vout: Vout,
 	}
+}
+func mapClientBlocksToServerBlocks(blocks []*blockchain.Block) []*pb.Block {
+	pbBlocks := []*pb.Block{}
+	for _, block := range blocks {
+		pbBlocks = append(pbBlocks, &pb.Block{
+			Hash:         block.Hash,
+			PrevHash:     block.PrevHash,
+			Transactions: mapBlockchainTSXsToServerTSXs(block.Transactions),
+			Nonce:        int32(block.Nonce),
+			Timestamp:    block.TimeStamp.Unix(),
+		})
+	}
+	return pbBlocks
+}
+func mapBlockchainTSXsToServerTSXs(tsxs []*blockchain.Transaction) []*pb.Transaction {
+	pbTSXs := []*pb.Transaction{}
+	for _, tsx := range tsxs {
+		pbTSXs = append(pbTSXs, mapBlockchainTsxToServerTsx(tsx))
+	}
+	return pbTSXs
 }
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -971,9 +1022,9 @@ func httpServer(l net.Listener, n Node) error {
 			return
 		}
 		ws := n.GetWallets()
-		bc := blockchain.ContinueBlockChain(n.GetAddress())
+		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
 		UTXO := blockchain.UTXOSet{
-			BlockChain: bc,
+			BlockChain: n.GetBlockchain(),
 		}
 		tx := ws.NewTransaction(fromWallet, toWallet, amount, &UTXO, n.GetAddress())
 		if tx == nil {
@@ -981,20 +1032,25 @@ func httpServer(l net.Listener, n Node) error {
 			w.Write([]byte("Transaction failed"))
 		}
 		if fullNode, ok := n.(*FullNode); ok {
-			syncMemPool(*fullNode, tx)
+			err := fullNode.AddMemPool(tx)
+			if err == nil {
+				fmt.Println("Broadcasting transaction")
+				fullNode.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
+			} else {
+				util.Handle(err)
+			}
+		} else {
+			n.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
 		}
-		tsx := mapBlockchainTsxToServerTsx(tx)
-		n.BroadcastTSX(context.Background(), tsx)
 		miningNode := SelectRandomFullNode(n)
 		if miningNode != nil {
 			fmt.Println("Mining block with node: ", miningNode.GetAddress())
-			conn, err := grpc.NewClient(miningNode.GetAddress(), grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")))
+			conn, err := n.connectToPeer(miningNode.GetAddress())
 			if err != nil {
 				fmt.Println("Error creating client: ", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte("Error creating client"))
 			}
-			defer conn.Close()
 			client := pb.NewBlockchainServiceClient(conn)
 			_, err = client.MineBlock(context.Background(), &pb.Empty{})
 			if err != nil {
