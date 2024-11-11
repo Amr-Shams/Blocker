@@ -122,7 +122,7 @@ func (w Wallet) String() string {
 	str += "PublicKey: " + string(w.PublicKey) + "\n"
 	return str
 }
-func (ws *Wallets) NewTransaction(from, to string, amount int, UTXO *blockchain.UTXOSet, nodeId string) *blockchain.Transaction {
+func (ws *Wallets) NewTransaction(from, to string, amount int, UTXO *blockchain.UTXOSet) *blockchain.Transaction {
 	var inputs []blockchain.TXInput
 	var outputs []blockchain.TXOutput
 	w := ws.Wallets[from]

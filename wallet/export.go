@@ -52,8 +52,8 @@ func SendCommand() *cobra.Command {
 			bc := blockchain.ContinueBlockChain(nodeID)
 			ws := LoadWallets(nodeID)
 			defer bc.Close()
-			UTXO := blockchain.UTXOSet{bc}
-			tx := ws.NewTransaction(from, to, amount, &UTXO, nodeID)
+			UTXO := blockchain.UTXOSet{BlockChain: bc}
+			tx := ws.NewTransaction(from, to, amount, &UTXO)
 			block, added := bc.AddBlock([]*blockchain.Transaction{tx})
 			if !added {
 				fmt.Println("Failed to add block")

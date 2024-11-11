@@ -130,9 +130,6 @@ func (n *FullNode) AddMemPool(tsx *blockchain.Transaction) error {
 	defer func() {
 		n.Status = StateIdle
 	}()
-	if n.Blockchain == nil {
-		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
-	}
 	return n.MemPool.AddTx(tsx)
 }
 func (n *FullNode) GetMemPool() *blockchain.Transaction {
@@ -140,56 +137,17 @@ func (n *FullNode) GetMemPool() *blockchain.Transaction {
 }
 
 func (n *FullNode) DeleteTSXMemPool(ID []byte) {
-	n.MemPool.DeleteTx(string(ID))
+	n.MemPool.DeleteTx(ID)
 }
 func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Response, error) {
 	s.Status = StateConnected
 	defer func() {
 		s.Status = StateIdle
+		dbMutex.Unlock()
 	}()
-
 	dbMutex.Lock()
-	defer dbMutex.Unlock()
-	bc := blockchain.ContinueBlockChain(s.Address)
-	defer bc.Database.Close()
-
-	Blocks := bc.GetBlocks()
-	var blocks []*pb.Block
-	for _, block := range Blocks {
-		var transactions []*pb.Transaction
-		for _, tx := range block.Transactions {
-			var Vin []*pb.TXInput
-			for _, input := range tx.Vin {
-				Vin = append(Vin, &pb.TXInput{
-					Txid:      input.Txid,
-					Vout:      int32(input.Vout),
-					Signature: input.Signature,
-					PubKey:    input.PubKey,
-				})
-			}
-			var Vout []*pb.TXOutput
-			for _, output := range tx.Vout {
-				Vout = append(Vout, &pb.TXOutput{
-					Value:      int32(output.Value),
-					PubKeyHash: output.PubKeyHash,
-				})
-			}
-			transactions = append(transactions, &pb.Transaction{
-				Id:   tx.ID,
-				Vin:  Vin,
-				Vout: Vout,
-			})
-		}
-		blocks = append(blocks, &pb.Block{
-			Timestamp:    block.TimeStamp.Unix(),
-			Hash:         block.Hash,
-			Transactions: transactions,
-			PrevHash:     block.PrevHash,
-			Nonce:        int32(block.Nonce),
-		})
-	}
 	response := &pb.Response{
-		Blocks:  blocks,
+		Blocks:  mapClientBlocksToServerBlocks(s.Blockchain.GetBlocks()),
 		Status:  stateName[s.Status],
 		Success: true,
 	}
@@ -200,29 +158,25 @@ func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, e
 	s.Status = StateMining
 	defer func() {
 		s.Status = StateIdle
-		s.CloseDB()
 	}()
 	fmt.Println("Mining Block from mempool")
-	s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
 	tsx := s.GetMemPool()
-	fmt.Println("Transaction from mempool", tsx)
+	fmt.Printf("Transaction in mempool %x\n", tsx.ID)
 	if tsx == nil {
 		return &pb.Response{Success: false}, nil
 	}
+	UTXOSet := blockchain.UTXOSet{BlockChain: s.Blockchain}
 	block, err := s.Blockchain.AddBlock([]*blockchain.Transaction{tsx})
 	if !err {
 		return &pb.Response{Success: false}, nil
 	}
-	UTXOSet := blockchain.UTXOSet{BlockChain: s.GetBlockchain()}
+	addedBlock := s.Blockchain.GetBlock(block.Hash)
+	addedBlock.Print()
 	fmt.Println("Reindexing UTXO Set")
 	UTXOSet.Update(block)
+	fmt.Println("Deleting transaction from mempool")
 	s.DeleteTSXMemPool(tsx.ID)
 	serverBlocks := mapClientBlocksToServerBlocks([]*blockchain.Block{block})
-	go func() {
-		s.BroadcastBlock(context.Background(), serverBlocks[0])
-	}()
 	return &pb.Response{Success: true, Blocks: serverBlocks}, nil
 }
 func (s *FullNode) AddTSXMempool(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
@@ -455,29 +409,20 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	s.Status = StateMining
 	defer func() {
 		s.Status = StateIdle
-		s.CloseDB()
 	}()
 	fmt.Println("Received new block")
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	block := &blockchain.Block{
-		TimeStamp: time.Unix(in.Timestamp, 0),
-		Hash:      in.Hash,
-		PrevHash:  in.PrevHash,
-		Nonce:     int(in.Nonce),
+		TimeStamp:    time.Unix(in.Timestamp, 0),
+		Hash:         in.Hash,
+		Transactions: mapServerTSXsToBlockchainTSXs(in.Transactions),
+		PrevHash:     in.PrevHash,
+		Nonce:        int(in.Nonce),
 	}
-	transactions := make([]*blockchain.Transaction, 0, len(in.Transactions))
-	for _, tx := range in.Transactions {
-		transaction := mapServerTsxToBlockchainTsx(tx)
-		transactions = append(transactions, transaction)
-	}
-	block.Transactions = transactions
 	proof := blockchain.NewProof(block)
 	if !proof.Validate() {
 		return &pb.Response{Success: false}, nil
-	}
-	if s.Blockchain == nil {
-		s.SetBlockchain(blockchain.ContinueBlockChain(s.GetAddress()))
 	}
 	if err := s.Blockchain.AddEnireBlock(block); !err {
 		return &pb.Response{Success: false}, nil
@@ -767,18 +712,11 @@ func (n *BaseNode) FetchBlockchain(peer *BaseNode) ([]*pb.Block, error) {
 // @input: newBlocks []*pb.Block - array of new blocks to be added to blockchain
 // @return: error - error if any occurred during update
 func (n *BaseNode) UpdateBlockchain(newBlocks []*pb.Block) error {
-	if n.Blockchain == nil || n.Blockchain.Database == nil {
-		n.Blockchain = blockchain.ContinueBlockChain(n.Address)
-	}
+
 	newBlocks = newBlocks[n.Blockchain.GetHeight():]
-	prevHeight := n.Blockchain.GetHeight()
+	UTXOSet := blockchain.UTXOSet{BlockChain: n.Blockchain}
 	for _, protoBlock := range newBlocks {
-		transactions := make([]*blockchain.Transaction, 0, len(protoBlock.Transactions))
-		for _, tx := range protoBlock.Transactions {
-			transaction := convertProtoTransaction(tx)
-			transactions = append(transactions, transaction)
-		}
-		// check the prev hash of the new block with the last block in the blockchain
+		transactions := mapServerTSXsToBlockchainTSXs(protoBlock.Transactions)
 		latestHash := n.Blockchain.GetLastHash()
 		if !bytes.Equal(protoBlock.PrevHash, latestHash) {
 			fmt.Println("PrevHash does not match the last block in the blockchain")
@@ -801,11 +739,7 @@ func (n *BaseNode) UpdateBlockchain(newBlocks []*pb.Block) error {
 			fmt.Println("Failed to add block to blockchain")
 			continue
 		}
-	}
-	if n.Blockchain != nil && prevHeight < n.Blockchain.GetHeight() {
-		fmt.Printf("Blockchain updated to height %d\n", n.Blockchain.GetHeight())
-		UTXOSet := blockchain.UTXOSet{BlockChain: n.Blockchain}
-		UTXOSet.Reindex()
+		UTXOSet.Update(block)
 	}
 	return nil
 }
@@ -843,7 +777,7 @@ func convertProtoTransaction(tx *pb.Transaction) *blockchain.Transaction {
 // @return: error - error if any occurred during sync
 func SyncBlockchain(n Node, bestPeer *BaseNode) error {
 	defer func() {
-		n.CloseDB()
+		// n.CloseDB()
 	}()
 	blocks, err := n.FetchBlockchain(bestPeer)
 	if blocks == nil {
@@ -857,11 +791,6 @@ func SyncBlockchain(n Node, bestPeer *BaseNode) error {
 	}
 	if err := n.UpdateBlockchain(blocks); err != nil {
 		return fmt.Errorf("failed to update blockchain: %v", err)
-	}
-
-	if n.GetBlockchain() == nil || n.GetBlockchain().Database == nil {
-		fmt.Println("No existing blockchain found! Initializing new blockchain.")
-		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
 	}
 
 	fmt.Printf("Chain of Node %s has %d blocks\n",
@@ -943,6 +872,26 @@ func mapClientBlocksToServerBlocks(blocks []*blockchain.Block) []*pb.Block {
 	}
 	return pbBlocks
 }
+func mapServerBlocksToClientBlocks(blocks []*pb.Block) []*blockchain.Block {
+	clientBlocks := []*blockchain.Block{}
+	for _, block := range blocks {
+		clientBlocks = append(clientBlocks, &blockchain.Block{
+			Hash:         block.Hash,
+			PrevHash:     block.PrevHash,
+			Transactions: mapServerTSXsToBlockchainTSXs(block.Transactions),
+			Nonce:        int(block.Nonce),
+			TimeStamp:    time.Unix(block.Timestamp, 0),
+		})
+	}
+	return clientBlocks
+}
+func mapServerTSXsToBlockchainTSXs(tsxs []*pb.Transaction) []*blockchain.Transaction {
+	res := []*blockchain.Transaction{}
+	for _, tsx := range tsxs {
+		res = append(res, mapServerTsxToBlockchainTsx(tsx))
+	}
+	return res
+}
 func mapBlockchainTSXsToServerTSXs(tsxs []*blockchain.Transaction) []*pb.Transaction {
 	pbTSXs := []*pb.Transaction{}
 	for _, tsx := range tsxs {
@@ -975,7 +924,7 @@ func httpServer(l net.Listener, n Node) error {
 
 	mux.HandleFunc("/pairs", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			n.CloseDB()
+			// n.CloseDB()
 		}()
 		pairs := n.GetAllPeers()
 		response, _ := json.Marshal(pairs)
@@ -984,7 +933,7 @@ func httpServer(l net.Listener, n Node) error {
 	})
 	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			n.CloseDB()
+			// n.CloseDB()
 		}()
 		response, _ := json.Marshal(n)
 		w.Header().Set("Content-Type", "application/json")
@@ -992,7 +941,7 @@ func httpServer(l net.Listener, n Node) error {
 	})
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			n.CloseDB()
+			// n.CloseDB()
 		}()
 		response, _ := json.Marshal(stateName[n.GetStatus()])
 		w.Header().Set("Content-Type", "application/json")
@@ -1003,9 +952,6 @@ func httpServer(l net.Listener, n Node) error {
 		toWallet := r.FormValue("to")
 		amountStr := r.FormValue("amount")
 		amount := util.StrToInt(amountStr)
-		defer func() {
-			n.CloseDB()
-		}()
 		if !util.ValidateAddress(fromWallet) {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("Invalid from address"))
@@ -1022,18 +968,18 @@ func httpServer(l net.Listener, n Node) error {
 			return
 		}
 		ws := n.GetWallets()
-		n.SetBlockchain(blockchain.ContinueBlockChain(n.GetAddress()))
+		fmt.Println("Creating transaction")
 		UTXO := blockchain.UTXOSet{
 			BlockChain: n.GetBlockchain(),
 		}
-		tx := ws.NewTransaction(fromWallet, toWallet, amount, &UTXO, n.GetAddress())
+		tx := ws.NewTransaction(fromWallet, toWallet, amount, &UTXO)
 		if tx == nil {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("Transaction failed"))
 		}
 		if fullNode, ok := n.(*FullNode); ok {
 			err := fullNode.AddMemPool(tx)
-			if err == nil {
+			if err != nil {
 				fmt.Println("Broadcasting transaction")
 				fullNode.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
 			} else {
@@ -1042,32 +988,19 @@ func httpServer(l net.Listener, n Node) error {
 		} else {
 			n.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
 		}
-		miningNode := SelectRandomFullNode(n)
-		if miningNode != nil {
-			fmt.Println("Mining block with node: ", miningNode.GetAddress())
-			conn, err := n.connectToPeer(miningNode.GetAddress())
-			if err != nil {
-				fmt.Println("Error creating client: ", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("Error creating client"))
-			}
-			client := pb.NewBlockchainServiceClient(conn)
-			_, err = client.MineBlock(context.Background(), &pb.Empty{})
-			if err != nil {
-				fmt.Printf("Error mining block: %v\n", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("Error mining block"))
-			}
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Transaction sent"))
-		} else {
+		res, err := n.MineBlock(context.Background(), &pb.Empty{})
+		if err != nil && len(res.Blocks) == 1 {
+			fmt.Printf("Error mining block: %v\n", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("No mining node available"))
+			w.Write([]byte("Error mining block"))
 		}
+		n.BroadcastBlock(context.Background(), res.Blocks[0])
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("No mining node available"))
 	})
 	mux.HandleFunc("/wallets", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			n.CloseDB()
+			// n.CloseDB()
 		}()
 		ws := n.GetWallets()
 		response, _ := json.Marshal(ws)
