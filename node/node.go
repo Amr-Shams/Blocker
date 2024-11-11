@@ -27,8 +27,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// FIXMEE(13): Minining woeking correclty
-// but the block is not floaded to the network correctly(though the broadcast is working correctly)
+// 
+
 
 const (
 	StateIdle = iota
@@ -77,6 +77,7 @@ type Node interface {
 	GetFullPeers() map[string]*FullNode
 	MineBlock(context.Context, *pb.Empty) (*pb.Response, error)
 	connectToPeer(string) (*grpc.ClientConn, error)
+	DeleteTSXMempool(context.Context, *pb.DeleteTSXMempoolRequest) (*pb.Empty, error)
 }
 type FUllNode interface {
 	Node
@@ -154,6 +155,10 @@ func (s *BaseNode) GetBlockChain(ctx context.Context, re *pb.Empty) (*pb.Respons
 
 	return response, nil
 }
+func (s *FullNode) DeleteTSXMempool(ctx context.Context, in *pb.DeleteTSXMempoolRequest) (*pb.Empty, error) {
+	s.DeleteTSXMemPool(in.Id)
+	return &pb.Empty{}, nil
+}
 func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, error) {
 	s.Status = StateMining
 	defer func() {
@@ -161,7 +166,6 @@ func (s *FullNode) MineBlock(ctx context.Context, in *pb.Empty) (*pb.Response, e
 	}()
 	fmt.Println("Mining Block from mempool")
 	tsx := s.GetMemPool()
-	fmt.Printf("Transaction in mempool %x\n", tsx.ID)
 	if tsx == nil {
 		return &pb.Response{Success: false}, nil
 	}
@@ -242,9 +246,9 @@ func shouldPreferBlock(block1, block2 *pb.Block) bool {
 }
 
 func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Response, error) {
-	s.Status = StateConnected
+	s.SetStatus(StateConnected)
 	defer func() {
-		s.Status = StateIdle
+		s.SetStatus(StateIdle)
 	}()
 	var wg sync.WaitGroup
 	for _, peer := range s.FullPeers {
@@ -263,6 +267,9 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Res
 				peer.BroadcastBlock(ctx, block)
 			} else {
 				fmt.Printf("Block not sent to %s\n", peer.GetAddress())
+			}
+			for _, tsx := range block.Transactions {
+				client.DeleteTSXMempool(ctx, &pb.DeleteTSXMempoolRequest{Id: tsx.Id})
 			}
 		}(peer)
 	}
@@ -306,6 +313,8 @@ func (s *BaseNode) BroadcastTSX(ctx context.Context, in *pb.Transaction) (*pb.Re
 			defer wg.Done()
 			if err := s.broadcastToFullNode(ctx, in, peer); err != nil {
 				errChan <- err
+			} else {
+				peer.BroadcastTSX(ctx, in)
 			}
 		}(peer)
 	}
@@ -317,6 +326,7 @@ func (s *BaseNode) BroadcastTSX(ctx context.Context, in *pb.Transaction) (*pb.Re
 
 	return &pb.Response{Status: stateName[s.Status], Success: true}, nil
 }
+
 func (s *BaseNode) broadcastToFullNode(ctx context.Context, in *pb.Transaction, peer *FullNode) error {
 	fmt.Printf("Sending TSX to full node %s\n", peer.GetAddress())
 	conn, err := s.connectToPeer(peer.GetAddress())
@@ -406,9 +416,9 @@ func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddP
 	return &pb.AddPeerResponse{Success: true}, nil
 }
 func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, error) {
-	s.Status = StateMining
+	s.SetStatus(StateConnected)
 	defer func() {
-		s.Status = StateIdle
+		s.SetStatus(StateIdle)
 	}()
 	fmt.Println("Received new block")
 	dbMutex.Lock()
@@ -427,7 +437,7 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	if err := s.Blockchain.AddEnireBlock(block); !err {
 		return &pb.Response{Success: false}, nil
 	}
-	UTXOSet := blockchain.UTXOSet{BlockChain: s.Blockchain}
+	UTXOSet := blockchain.UTXOSet{BlockChain: s.GetBlockchain()}
 	UTXOSet.Update(block)
 	return &pb.Response{Success: true}, nil
 }
@@ -744,34 +754,6 @@ func (n *BaseNode) UpdateBlockchain(newBlocks []*pb.Block) error {
 	return nil
 }
 
-// @input: tx *pb.Transaction - protobuf transaction to be converted
-// @return: *blockchain.Transaction - converted internal transaction
-func convertProtoTransaction(tx *pb.Transaction) *blockchain.Transaction {
-	inputs := make([]blockchain.TXInput, 0, len(tx.Vin))
-	for _, input := range tx.Vin {
-		inputs = append(inputs, blockchain.TXInput{
-			Txid:      input.Txid,
-			Vout:      int(input.Vout),
-			Signature: input.Signature,
-			PubKey:    input.PubKey,
-		})
-	}
-
-	outputs := make([]blockchain.TXOutput, 0, len(tx.Vout))
-	for _, output := range tx.Vout {
-		outputs = append(outputs, blockchain.TXOutput{
-			Value:      int(output.Value),
-			PubKeyHash: output.PubKeyHash,
-		})
-	}
-
-	return &blockchain.Transaction{
-		ID:   tx.Id,
-		Vin:  inputs,
-		Vout: outputs,
-	}
-}
-
 // @input: n Node - node to sync blockchain for
 // @input: bestPeer *BaseNode - peer to sync blockchain from
 // @return: error - error if any occurred during sync
@@ -978,25 +960,43 @@ func httpServer(l net.Listener, n Node) error {
 			w.Write([]byte("Transaction failed"))
 		}
 		if fullNode, ok := n.(*FullNode); ok {
+			fmt.Println("Adding transaction to mempool")
 			err := fullNode.AddMemPool(tx)
-			if err != nil {
+			fmt.Println(err)
+			if err == nil {
 				fmt.Println("Broadcasting transaction")
-				fullNode.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
+				done := make(chan bool) // we communicate by sharing memory
+				go func() {
+					fullNode.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
+					done <- true
+				}()
+				<-done
 			} else {
 				util.Handle(err)
 			}
 		} else {
-			n.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
+			done := make(chan bool)
+			go func() {
+				n.BroadcastTSX(context.Background(), mapBlockchainTsxToServerTsx(tx))
+				done <- true
+			}()
+			<-done
 		}
-		res, err := n.MineBlock(context.Background(), &pb.Empty{})
-		if err != nil && len(res.Blocks) == 1 {
-			fmt.Printf("Error mining block: %v\n", err)
+		miningNode := SelectRandomFullNode(n)
+		if miningNode != nil {
+			conn, err := n.connectToPeer(miningNode.GetAddress())
+			util.Handle(err)
+			client := pb.NewBlockchainServiceClient(conn)
+			res, err := client.MineBlock(context.Background(), &pb.Empty{})
+			util.Handle(err)
+			client.BroadcastBlock(context.Background(), res.Blocks[0])
+		} else {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Error mining block"))
+			w.Write([]byte("No mining node available"))
+			return
 		}
-		n.BroadcastBlock(context.Background(), res.Blocks[0])
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("No mining node available"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Transaction sent"))
 	})
 	mux.HandleFunc("/wallets", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -1019,9 +1019,7 @@ func httpServer(l net.Listener, n Node) error {
 	}
 	return s.Serve(l)
 }
-func syncMemPool(n FullNode, tx *blockchain.Transaction) {
-	n.AddMemPool(tx)
-}
+
 func SelectRandomFullNode(n Node) *FullNode {
 	peers := n.GetFullPeers()
 	if len(peers) == 0 {

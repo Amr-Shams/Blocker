@@ -19,16 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BlockchainService_GetBlockChain_FullMethodName  = "/server.BlockchainService/GetBlockChain"
-	BlockchainService_BroadcastTSX_FullMethodName   = "/server.BlockchainService/BroadcastTSX"
-	BlockchainService_BroadcastBlock_FullMethodName = "/server.BlockchainService/BroadcastBlock"
-	BlockchainService_CheckStatus_FullMethodName    = "/server.BlockchainService/CheckStatus"
-	BlockchainService_AddTSXMempool_FullMethodName  = "/server.BlockchainService/AddTSXMempool"
-	BlockchainService_AddBlock_FullMethodName       = "/server.BlockchainService/AddBlock"
-	BlockchainService_Hello_FullMethodName          = "/server.BlockchainService/Hello"
-	BlockchainService_AddPeer_FullMethodName        = "/server.BlockchainService/AddPeer"
-	BlockchainService_GetPeers_FullMethodName       = "/server.BlockchainService/GetPeers"
-	BlockchainService_MineBlock_FullMethodName      = "/server.BlockchainService/MineBlock"
+	BlockchainService_GetBlockChain_FullMethodName    = "/server.BlockchainService/GetBlockChain"
+	BlockchainService_BroadcastTSX_FullMethodName     = "/server.BlockchainService/BroadcastTSX"
+	BlockchainService_BroadcastBlock_FullMethodName   = "/server.BlockchainService/BroadcastBlock"
+	BlockchainService_CheckStatus_FullMethodName      = "/server.BlockchainService/CheckStatus"
+	BlockchainService_AddTSXMempool_FullMethodName    = "/server.BlockchainService/AddTSXMempool"
+	BlockchainService_DeleteTSXMempool_FullMethodName = "/server.BlockchainService/DeleteTSXMempool"
+	BlockchainService_AddBlock_FullMethodName         = "/server.BlockchainService/AddBlock"
+	BlockchainService_Hello_FullMethodName            = "/server.BlockchainService/Hello"
+	BlockchainService_AddPeer_FullMethodName          = "/server.BlockchainService/AddPeer"
+	BlockchainService_GetPeers_FullMethodName         = "/server.BlockchainService/GetPeers"
+	BlockchainService_MineBlock_FullMethodName        = "/server.BlockchainService/MineBlock"
 )
 
 // BlockchainServiceClient is the client API for BlockchainService service.
@@ -40,6 +41,7 @@ type BlockchainServiceClient interface {
 	BroadcastBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error)
 	CheckStatus(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
 	AddTSXMempool(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*Empty, error)
+	DeleteTSXMempool(ctx context.Context, in *DeleteTSXMempoolRequest, opts ...grpc.CallOption) (*Empty, error)
 	AddBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error)
 	Hello(ctx context.Context, in *Request, opts ...grpc.CallOption) (*HelloResponse, error)
 	AddPeer(ctx context.Context, in *AddPeerRequest, opts ...grpc.CallOption) (*AddPeerResponse, error)
@@ -105,6 +107,16 @@ func (c *blockchainServiceClient) AddTSXMempool(ctx context.Context, in *Transac
 	return out, nil
 }
 
+func (c *blockchainServiceClient) DeleteTSXMempool(ctx context.Context, in *DeleteTSXMempoolRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, BlockchainService_DeleteTSXMempool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *blockchainServiceClient) AddBlock(ctx context.Context, in *Block, opts ...grpc.CallOption) (*Response, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Response)
@@ -164,6 +176,7 @@ type BlockchainServiceServer interface {
 	BroadcastBlock(context.Context, *Block) (*Response, error)
 	CheckStatus(context.Context, *Request) (*Response, error)
 	AddTSXMempool(context.Context, *Transaction) (*Empty, error)
+	DeleteTSXMempool(context.Context, *DeleteTSXMempoolRequest) (*Empty, error)
 	AddBlock(context.Context, *Block) (*Response, error)
 	Hello(context.Context, *Request) (*HelloResponse, error)
 	AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error)
@@ -192,6 +205,9 @@ func (UnimplementedBlockchainServiceServer) CheckStatus(context.Context, *Reques
 }
 func (UnimplementedBlockchainServiceServer) AddTSXMempool(context.Context, *Transaction) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddTSXMempool not implemented")
+}
+func (UnimplementedBlockchainServiceServer) DeleteTSXMempool(context.Context, *DeleteTSXMempoolRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteTSXMempool not implemented")
 }
 func (UnimplementedBlockchainServiceServer) AddBlock(context.Context, *Block) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddBlock not implemented")
@@ -319,6 +335,24 @@ func _BlockchainService_AddTSXMempool_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BlockchainService_DeleteTSXMempool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteTSXMempoolRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlockchainServiceServer).DeleteTSXMempool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlockchainService_DeleteTSXMempool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlockchainServiceServer).DeleteTSXMempool(ctx, req.(*DeleteTSXMempoolRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _BlockchainService_AddBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Block)
 	if err := dec(in); err != nil {
@@ -435,6 +469,10 @@ var BlockchainService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddTSXMempool",
 			Handler:    _BlockchainService_AddTSXMempool_Handler,
+		},
+		{
+			MethodName: "DeleteTSXMempool",
+			Handler:    _BlockchainService_DeleteTSXMempool_Handler,
 		},
 		{
 			MethodName: "AddBlock",

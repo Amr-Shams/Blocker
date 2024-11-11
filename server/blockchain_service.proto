@@ -15,6 +15,9 @@ message Transaction {
   repeated TXInput vin = 2;
   repeated TXOutput vout = 3;
 }
+message DeleteTSXMempoolRequest {
+  bytes id = 1;
+}
 
 message TXInput {
   bytes txid = 1;
@@ -84,6 +87,7 @@ service BlockchainService {
   rpc BroadcastBlock (Block) returns (Response);
   rpc CheckStatus (Request) returns (Response);
   rpc AddTSXMempool (Transaction) returns (Empty);
+  rpc DeleteTSXMempool (DeleteTSXMempoolRequest) returns (Empty);
   rpc AddBlock (Block) returns (Response);
   rpc Hello (Request) returns (HelloResponse);
   rpc AddPeer (AddPeerRequest) returns (AddPeerResponse);
