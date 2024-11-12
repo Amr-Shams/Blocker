@@ -27,9 +27,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// 
+// REFAC : Refactor main node.go into at Moudules
+// Module for the node interface
+// Module for the db connection(Huge)
+// Module for the grpc server and client
+// Module for the Nodes (Base, Wallet, Full)
+// Module for the routers and handlers
 
+// TEST(16): Add unit test for the code
+// Learn how to create unit test for grpc server
+// how to make an integration test for grpc server and rest api ?
 
+// ADDDDDDDD(15): Work on the frontend
+// simple tailwand + html + js/ts remove Vue.js for now
 const (
 	StateIdle = iota
 	StateMining
@@ -64,8 +74,8 @@ type Node interface {
 	AddBlock(context.Context, *pb.Block) (*pb.Response, error)
 	Hello(context.Context, *pb.Request) (*pb.HelloResponse, error)
 	AllPeersAddress() []string
-	DiscoverPeers() *BaseNode
-	FetchBlockchain(peer *BaseNode) ([]*pb.Block, error)
+	DiscoverPeers() *FullNode
+	FetchBlockchain(peer *FullNode) ([]*pb.Block, error)
 	UpdateBlockchain([]*pb.Block) error
 	GetWallets() *wallet.Wallets
 	AddWallet(*wallet.Wallet)
@@ -341,7 +351,7 @@ func (s *BaseNode) broadcastToFullNode(ctx context.Context, in *pb.Transaction, 
 	return nil
 }
 
-// TODO: Ignore the WalletNode for now
+// TODO(17): Ignore the WalletNode for now
 // it is just used to notify the wallet about the transaction
 
 // func (s *BaseNode) broadcastToWalletNode(ctx context.Context, in *pb.Transaction, peer *WalletNode) error {
@@ -383,35 +393,44 @@ func (s *BaseNode) AddWallet(w *wallet.Wallet) {
 	s.Wallets.Wallets[string(w.PublicKey)] = w
 }
 func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
-
-	if in.Type == "full" {
-		s.FullPeers[in.Address] = &FullNode{
-			BaseNode: BaseNode{
-				ID:      in.NodeId,
-				Address: in.Address,
-				Status:  getStatusFromString(in.Status),
-				Type:    in.Type,
-				Wallets: mapServerWalletsToBlockchainWallets(in.Wallets),
-				Blockchain: &blockchain.BlockChain{
-					LastTimeUpdate: in.LastTimeUpdate,
-					Height:         int(in.Height),
-				},
-			},
+	baseNode := BaseNode{
+		ID:      in.NodeId,
+		Address: in.Address,
+		Status:  getStatusFromString(in.Status),
+		Type:    in.Type,
+		Wallets: mapServerWalletsToBlockchainWallets(in.Wallets),
+		Blockchain: &blockchain.BlockChain{
+			LastTimeUpdate: in.LastTimeUpdate,
+			Height:         int(in.Height),
+		},
+	}
+	switch in.Type {
+	case "full":
+		peer := &FullNode{BaseNode: baseNode}
+		s.FullPeers[in.Address] = peer
+		if s.Blockchain.Height < int(in.Height) {
+			go func() {
+				syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				syncDone := make(chan error, 1)
+				go func() {
+					err := SyncBlockchain(s, peer)
+					syncDone <- err
+				}()
+				select {
+				case err := <-syncDone:
+					if err != nil {
+						log.Printf("Failed to sync blockchain with %s: %v", in.Address, err)
+					}
+				case <-syncCtx.Done():
+					log.Printf("Sync operation with %s timed out", in.Address)
+				}
+			}()
 		}
-	} else if in.Type == "wallet" {
-		s.WalletPeers[in.Address] = &WalletNode{
-			BaseNode: BaseNode{
-				ID:      in.NodeId,
-				Address: in.Address,
-				Status:  getStatusFromString(in.Status),
-				Type:    in.Type,
-				Wallets: mapServerWalletsToBlockchainWallets(in.Wallets),
-				Blockchain: &blockchain.BlockChain{
-					LastTimeUpdate: in.LastTimeUpdate,
-					Height:         int(in.Height),
-				},
-			},
-		}
+	case "wallet":
+		s.WalletPeers[in.Address] = &WalletNode{BaseNode: baseNode}
+	default:
+		return nil, fmt.Errorf("unknown peer type: %s", in.Type)
 	}
 	return &pb.AddPeerResponse{Success: true}, nil
 }
@@ -612,7 +631,7 @@ func (n *BaseNode) connectToPeer(address string) (*grpc.ClientConn, error) {
 	n.ConnectionPool[address] = conn
 	return conn, nil
 }
-func (n *BaseNode) DiscoverPeers() (bestPeer *BaseNode) {
+func (n *BaseNode) DiscoverPeers() (bestPeer *FullNode) {
 
 	// Step 1: Gather metadata from each peer
 	n.ConnectionPool = make(map[string]*grpc.ClientConn)
@@ -686,11 +705,11 @@ func (n *BaseNode) DiscoverPeers() (bestPeer *BaseNode) {
 			}
 
 			if bestPeer == nil {
-				bestPeer = &currentPeer.BaseNode
+				bestPeer = currentPeer
 			} else if currentPeer.BaseNode.Blockchain != nil &&
 				bestPeer.Blockchain != nil &&
 				bestPeer.Blockchain.GetHeight() < currentPeer.BaseNode.Blockchain.GetHeight() {
-				bestPeer = &currentPeer.BaseNode
+				bestPeer = currentPeer
 			}
 		}
 	}
@@ -700,7 +719,7 @@ func (n *BaseNode) DiscoverPeers() (bestPeer *BaseNode) {
 // @input: peer *BaseNode - peer node to fetch blockchain from
 // @return: []*pb.Block - array of blocks fetched from peer
 // @return: error - error if any occurred during fetch
-func (n *BaseNode) FetchBlockchain(peer *BaseNode) ([]*pb.Block, error) {
+func (n *BaseNode) FetchBlockchain(peer *FullNode) ([]*pb.Block, error) {
 	if peer == nil || peer.GetAddress() == n.GetAddress() {
 		return nil, nil
 	}
@@ -757,7 +776,7 @@ func (n *BaseNode) UpdateBlockchain(newBlocks []*pb.Block) error {
 // @input: n Node - node to sync blockchain for
 // @input: bestPeer *BaseNode - peer to sync blockchain from
 // @return: error - error if any occurred during sync
-func SyncBlockchain(n Node, bestPeer *BaseNode) error {
+func SyncBlockchain(n Node, bestPeer *FullNode) error {
 	defer func() {
 		// n.CloseDB()
 	}()
