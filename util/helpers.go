@@ -71,6 +71,7 @@ func ValidateAddress(address string) bool {
 	targetCheckSum := CheckSum(append([]byte{version}, pubKeyHash...))
 	return bytes.Equal(actualCheckSum, targetCheckSum)
 }
+
 func HashPubKey(PublicKey []byte) []byte {
 	pubHash := sha256.Sum256(PublicKey)
 	hasher := ripemd160.New()

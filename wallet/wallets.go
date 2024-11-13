@@ -74,7 +74,10 @@ func (ws *Wallets) AddWallet(nodeId string) {
 func (ws *Wallets) GetWallet(address string) *Wallet {
 	return ws.Wallets[address]
 }
-
+func (ws *Wallets) Authenticated(address string) bool {
+	_, ok := ws.Wallets[address]
+	return ok
+}
 func GetAllAddresses(nodeId string) {
 	Wallets := LoadWallets(nodeId).Wallets
 	for address := range Wallets {

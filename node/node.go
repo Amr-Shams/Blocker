@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +40,8 @@ import (
 // Learn how to create unit test for grpc server
 // how to make an integration test for grpc server and rest api ?
 
-// ADDDDDDDD(15): Work on the frontend
-// simple tailwand + html + js/ts remove Vue.js for now
+// 
+
 const (
 	StateIdle = iota
 	StateMining
@@ -680,6 +682,7 @@ func (n *BaseNode) DiscoverPeers() (bestPeer *FullNode) {
 						Blockchain: &blockchain.BlockChain{
 							LastTimeUpdate: peerResponse.LastTimeUpdate,
 							Height:         int(peerResponse.Height),
+							LastHash:       peerResponse.LastHash,
 						},
 					},
 				}
@@ -694,6 +697,7 @@ func (n *BaseNode) DiscoverPeers() (bestPeer *FullNode) {
 						Blockchain: &blockchain.BlockChain{
 							LastTimeUpdate: peerResponse.LastTimeUpdate,
 							Height:         int(peerResponse.Height),
+							LastHash:       peerResponse.LastHash,
 						},
 					},
 				}
@@ -902,7 +906,7 @@ func mapBlockchainTSXsToServerTSXs(tsxs []*blockchain.Transaction) []*pb.Transac
 }
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8080") // Allow Vue.js frontend
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -918,6 +922,7 @@ func enableCORS(next http.Handler) http.Handler {
 func (n *BaseNode) GetWallets() *wallet.Wallets {
 	return n.Wallets
 }
+
 func httpServer(l net.Listener, n Node) error {
 	mux := http.NewServeMux()
 	// create a get request to get all paris
@@ -948,6 +953,27 @@ func httpServer(l net.Listener, n Node) error {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(response)
 	})
+	mux.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
+		ws := n.GetWallets()
+		var balances = make(map[string]int)
+		UTXOSet := blockchain.UTXOSet{BlockChain: n.GetBlockchain()}
+		for _, w := range ws.Wallets {
+
+			pubKeyHash := util.Base58Decode([]byte(w.GetAddress()))
+			pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-wallet.CheckSumLength]
+			UTXOs := UTXOSet.FindUTXO(pubKeyHash)
+			balance := 0
+			for _, out := range UTXOs {
+				fmt.Printf("Out: %v\n", out)
+				balance += out.Value
+			}
+			fmt.Printf("Address: %s, Balance: %d\n", w.GetAddress(), balance)
+			balances[w.GetAddress()] = balance
+		}
+		response, _ := json.Marshal(balances)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(response)
+	})
 	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
 		fromWallet := r.FormValue("from")
 		toWallet := r.FormValue("to")
@@ -969,6 +995,11 @@ func httpServer(l net.Listener, n Node) error {
 			return
 		}
 		ws := n.GetWallets()
+		if ws == nil || ws.Authenticated(fromWallet) == false {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("Unauthorized"))
+			return
+		}
 		fmt.Println("Creating transaction")
 		UTXO := blockchain.UTXOSet{
 			BlockChain: n.GetBlockchain(),
@@ -1032,6 +1063,25 @@ func httpServer(l net.Listener, n Node) error {
 		response, _ := json.Marshal(wallet)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(response)
+	})
+	mux.HandleFunc("/memPool", func(w http.ResponseWriter, r *http.Request) {
+		if fullNode, ok := n.(*FullNode); ok {
+			memPool := fullNode.GetMemPool()
+			response, _ := json.Marshal(memPool)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(response)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte("Method not allowed"))
+		}
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(cwd, "views", "home.html"))
 	})
 	s := &http.Server{
 		Handler: enableCORS(mux),
