@@ -3,9 +3,9 @@ package blockchain
 import (
 	"fmt"
 	"log"
-	"os"
 	"runtime"
 
+	"github.com/Amr-Shams/Blocker/storage"
 	"github.com/Amr-Shams/Blocker/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -53,8 +53,8 @@ func CleanCommand() *cobra.Command {
 		Short: "Clean the blockchain",
 		Run: func(_ *cobra.Command, _ []string) {
 			nodeID := viper.GetString("NodeID")
-			dbFile := fmt.Sprintf(dbFile, nodeID)
-			os.RemoveAll(dbFile)
+			db, _ := storage.GetInstance(nodeID)
+			defer db.Clean()
 		},
 	}
 }

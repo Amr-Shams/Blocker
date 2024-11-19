@@ -40,7 +40,7 @@ import (
 // Learn how to create unit test for grpc server
 // how to make an integration test for grpc server and rest api ?
 
-// 
+//
 
 const (
 	StateIdle = iota
@@ -455,7 +455,7 @@ func (s *BaseNode) AddBlock(ctx context.Context, in *pb.Block) (*pb.Response, er
 	if !proof.Validate() {
 		return &pb.Response{Success: false}, nil
 	}
-	if err := s.Blockchain.AddEnireBlock(block); !err {
+	if err := s.Blockchain.AddEntireBlock(block); !err {
 		return &pb.Response{Success: false}, nil
 	}
 	UTXOSet := blockchain.UTXOSet{BlockChain: s.GetBlockchain()}
@@ -768,7 +768,7 @@ func (n *BaseNode) UpdateBlockchain(newBlocks []*pb.Block) error {
 			fmt.Println("Proof of work is invalid")
 			continue
 		}
-		if err := n.Blockchain.AddEnireBlock(block); !err {
+		if err := n.Blockchain.AddEntireBlock(block); !err {
 			fmt.Println("Failed to add block to blockchain")
 			continue
 		}
