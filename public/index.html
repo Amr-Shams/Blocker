@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blockchain Network Debugger</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.rawgit.com/anvaka/VivaGraphJS/v0.9.0/dist/vivagraph.js"></script>
+  </head>
+
+  <body class="bg-gray-900 text-green-400 font-mono">
+    <svg width="0" height="0">
+      <!-- Define the full node icon -->
+      <symbol id="fullNodeIcon" viewBox="0 0 24 24">
+        <circle
+          cx="12"
+          cy="12"
+          r="11"
+          fill="#E3F2FD"
+          stroke="#1E88E5"
+          stroke-width="2"
+        />
+        <circle cx="12" cy="12" r="5" fill="#1E88E5" />
+      </symbol>
+
+      <!-- Define the wallet node icon -->
+      <symbol id="walletNodeIcon" viewBox="0 0 24 24">
+        <rect
+          x="2"
+          y="6"
+          width="20"
+          height="14"
+          rx="2"
+          fill="#E8F5E9"
+          stroke="#43A047"
+          stroke-width="2"
+        />
+        <circle cx="12" cy="13" r="4" fill="#43A047" />
+      </symbol>
+    </svg>
+    <div class="max-w-full mx-auto p-2">
+      <div class="grid grid-cols-12 gap-2">
+        <!-- Blockchain Status -->
+        <div class="col-span-4 debug-panel p-2 rounded">
+          <div class="text-xs text-gray-400 mb-2">Blockchain Status</div>
+          <div id="block-view" class="memory-view h-64 overflow-y-auto"></div>
+        </div>
+
+        <!-- Network Nodes -->
+        <div class="col-span-4 debug-panel p-2 rounded">
+          <div class="text-xs text-gray-400 mb-2">Network Nodes</div>
+          <div id="nodes-view" class="memory-view h-64 overflow-y-auto"></div>
+        </div>
+
+        <!-- Mempool Monitor -->
+        <div class="col-span-4 debug-panel p-2 rounded">
+          <div class="text-xs text-gray-400 mb-2">Mempool Monitor</div>
+          <div id="mempool-view" class="memory-view h-64 overflow-y-auto"></div>
+        </div>
+        <!-- Network Graph with white background -->
+        <div class="col-span-4 debug-panel p-2 rounded mt-2 bg-white">
+          <div class="text-xs text-gray-400 mb-2">Network Graph</div>
+          <div id="network-graph" class="h-64 bg-white"></div>
+        </div>
+
+        <!-- Debug Log -->
+        <div class="col-span-4 debug-panel p-2 rounded mt-2">
+          <div class="text-xs text-gray-400 mb-2">Debug Log</div>
+          <div id="log-view" class="memory-view h-64 overflow-y-auto"></div>
+        </div>
+
+        <!-- Wallets -->
+        <div class="col-span-4 debug-panel p-2 rounded mt-2">
+          <div class="text-xs text-gray-400 mb-2">Balances</div>
+          <div
+            id="balances-view"
+            class="memory-view h-64 overflow-y-auto"
+          ></div>
+        </div>
+      </div>
+      <!-- Transaction Control -->
+      <div class="col-span-3 debug-panel p-2 rounded">
+        <div class="text-xs text-gray-400 mb-2">Transaction Control</div>
+        <form id="transaction-form" class="space-y-2">
+          <div class="flex space-x-2">
+            <input
+              type="text"
+              name="from"
+              placeholder="From (hex)"
+              class="w-full bg-gray-800 text-green-400 text-xs p-1 rounded"
+            />
+            <input
+              type="text"
+              name="to"
+              placeholder="To (hex)"
+              class="w-full bg-gray-800 text-green-400 text-xs p-1 rounded"
+            />
+          </div>
+          <div class="flex space-x-2">
+            <input
+              type="text"
+              name="amount"
+              placeholder="Amount (BTC)"
+              class="w-full bg-gray-800 text-green-400 text-xs p-1 rounded"
+            />
+            <button
+              type="submit"
+              class="bg-gray-800 text-green-400 text-xs px-3 py-1 rounded hover:bg-gray-700"
+            >
+              Execute
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Control Bar -->
+      <div
+        class="fixed bottom-0 left-0 right-0 bg-gray-800 p-2 border-t border-gray-700"
+      >
+        <div class="flex justify-between items-center max-w-full mx-auto">
+          <div class="flex space-x-4">
+            <button
+              id="pause-btn"
+              class="text-xs text-yellow-400 hover:text-yellow-300"
+            >
+              ⏸ Pause
+            </button>
+            <button
+              id="step-btn"
+              class="text-xs text-blue-400 hover:text-blue-300"
+            >
+              ⏭ Step
+            </button>
+            <button
+              id="continue-btn"
+              class="text-xs text-green-400 hover:text-green-300"
+            >
+              ▶ Continue
+            </button>
+          </div>
+          <div class="flex space-x-4">
+            <button
+              id="add-wallet-btn"
+              class="text-xs text-green-400 hover:text-green-300"
+            >
+              Add Wallet
+            </button>
+            <button
+              id="add-node-btn"
+              class="text-xs text-green-400 hover:text-green-300"
+            >
+              Add Node
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      const API_PORT = "{{.Port}}";
+  </script>
+  <script src="/static/script.js"></script>
+  </body>
+</html>

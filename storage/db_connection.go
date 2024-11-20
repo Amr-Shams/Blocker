@@ -47,21 +47,23 @@ func getInstance(nodeId string) (*storage, error) {
 		dbFilePath := fmt.Sprintf(dbFile, nodeId)
 		instance.db, err = leveldb.OpenFile(dbFilePath, nil)
 		if err != nil {
+			fmt.Println("error opening db file")
 			instance.db = nil
 		}
+		fmt.Println(instance)
 	})
 	return instance, err
 }
 
 func GetInstance(nodeId string) (StorageInterface, error) {
-	if instance == nil {
+	if instance == nil || instance.nodeId != nodeId {
 		return getInstance(nodeId)
 	}
 	return instance, nil
 }
 
 func (s *storage) DBExist() bool {
-	dbFilePath := fmt.Sprintf("dbFile", s.nodeId)
+	dbFilePath := fmt.Sprintf(dbFile, s.nodeId)
 	if _, err := os.Stat(dbFilePath); os.IsNotExist(err) {
 		return false
 	}
@@ -83,6 +85,6 @@ func (s *storage) Clean() error {
 	if s.db != nil {
 		s.db.Close()
 	}
-	dbFilePath := fmt.Sprintf("dbFile", s.nodeId)
+	dbFilePath := fmt.Sprintf(dbFile, s.nodeId)
 	return os.RemoveAll(dbFilePath)
 }

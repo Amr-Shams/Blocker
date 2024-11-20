@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -235,7 +235,6 @@ func MergeBlockChain(blockchain1, blockchain2 []*pb.Block) []*pb.Block {
 	var mergedChain []*pb.Block
 	currentBlock := latestBlock
 	for currentBlock != nil && len(currentBlock.PrevHash) > 0 {
-		fmt.Print("Current Block: %x\n", currentBlock.Hash)
 		mergedChain = append([]*pb.Block{currentBlock}, mergedChain...)
 		currentBlock = blockMap[string(currentBlock.PrevHash)]
 	}
@@ -273,7 +272,7 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Res
 				return
 			}
 			client := pb.NewBlockchainServiceClient(conn)
-			added, err := client.AddBlock(ctx, block)
+			added, _ := client.AddBlock(ctx, block)
 			if added.Success {
 				fmt.Printf("Block sent to %s\n", peer.GetAddress())
 				peer.BroadcastBlock(ctx, block)
@@ -296,7 +295,7 @@ func (s *BaseNode) BroadcastBlock(ctx context.Context, block *pb.Block) (*pb.Res
 				return
 			}
 			client := pb.NewBlockchainServiceClient(conn)
-			added, err := client.AddBlock(ctx, block)
+			added, _ := client.AddBlock(ctx, block)
 			if added.Success {
 				fmt.Printf("Block sent to %s\n", peer.GetAddress())
 			} else {
@@ -958,7 +957,6 @@ func httpServer(l net.Listener, n Node) error {
 		var balances = make(map[string]int)
 		UTXOSet := blockchain.UTXOSet{BlockChain: n.GetBlockchain()}
 		for _, w := range ws.Wallets {
-
 			pubKeyHash := util.Base58Decode([]byte(w.GetAddress()))
 			pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-wallet.CheckSumLength]
 			UTXOs := UTXOSet.FindUTXO(pubKeyHash)
@@ -995,7 +993,7 @@ func httpServer(l net.Listener, n Node) error {
 			return
 		}
 		ws := n.GetWallets()
-		if ws == nil || ws.Authenticated(fromWallet) == false {
+		if ws == nil || !ws.Authenticated(fromWallet) {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("Unauthorized"))
 			return
@@ -1075,13 +1073,20 @@ func httpServer(l net.Listener, n Node) error {
 			w.Write([]byte("Method not allowed"))
 		}
 	})
+	fileServer := http.FileServer(http.Dir("./public"))
+	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		cwd, err := os.Getwd()
+		tmpl, err := template.ParseFiles(filepath.Join("public", "index.html"))
 		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		http.ServeFile(w, r, filepath.Join(cwd, "views", "home.html"))
+		data := struct {
+			Port string
+		}{
+			Port: n.GetAddress(),
+		}
+		tmpl.Execute(w, data)
 	})
 	s := &http.Server{
 		Handler: enableCORS(mux),

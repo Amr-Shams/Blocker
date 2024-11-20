@@ -132,7 +132,7 @@ func NewBlockChain(address string, nodeId string) *BlockChain {
 	height := 0
 	util.Handle(err)
 	lastHash, err = db.GetLastHash()
-	if err != nil {
+	if err != nil && address != "" {
 		if err == leveldb.ErrNotFound {
 			cbtx := NewCoinbaseTX(address, genesis)
 			genesis := Genesis(cbtx)
@@ -163,7 +163,6 @@ func ContinueBlockChain(nodeId string) *BlockChain {
 	lastHash, err := db.GetLastHash()
 	if err == leveldb.ErrNotFound {
 		fmt.Println("No last hash found, initializing new blockchain")
-		db.Close()
 		return NewBlockChain("", nodeId)
 	} else if err != nil {
 		log.Fatalf("Failed to get last hash: %v", err)
@@ -291,7 +290,6 @@ func (bc *BlockChain) AddEntireBlock(block *Block) bool {
 	bc.LastHash = block.Hash
 	bc.LastTimeUpdate = block.TimeStamp.Unix()
 	bc.Height++
-	bc.Database, _ = storage.GetInstance(nodeID)
 	err := bc.Database.SaveBlock(block.Hash, block.Serialize())
 	if err != nil && bytes.Contains([]byte(err.Error()), []byte("leveldb: key exists")) {
 		log.Printf("Block already exists: %x", block.Hash)
