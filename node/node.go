@@ -1197,7 +1197,9 @@ func StartWalletNodeCommand() *cobra.Command {
 		},
 	}
 }
-
+// ASS(18): New process for CMD 
+// This process will communicate with the other servers using grpc 
+// and the websocket or grcp with frontend
 func StartFullNodeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "run1",
