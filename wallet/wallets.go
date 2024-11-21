@@ -38,11 +38,15 @@ func Deserialize(data []byte) *Wallets {
 func Save(ws *Wallets, nodeId string) {
 	content := ws.Serialize()
 	StoreFile := fmt.Sprintf(StoreFile, nodeId)
-	if _, err := os.Stat(StoreFile); os.IsNotExist(err) {
-		os.WriteFile(StoreFile, []byte("{}"), 0644)
-	}
-	err := os.WriteFile(StoreFile, content, 0644)
-	util.Handle(err)
+    f, err := os.OpenFile(StoreFile, os.O_APPEND | os.O_CREATE | os.O_WRONLY, 0644)
+    util.Handle(err)
+    if _, err :=f.Write(content); err != nil {
+        f.Close()
+        util.Handle(err)
+    }
+    if err := f.Close(); err != nil {
+        util.Handle(err)
+    }
 }
 func LoadWallets(nodeId string) *Wallets {
 	StoreFile := fmt.Sprintf(StoreFile, nodeId)

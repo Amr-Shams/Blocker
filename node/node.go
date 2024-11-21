@@ -36,9 +36,9 @@ import (
 // Module for the Nodes (Base, Wallet, Full)
 // Module for the routers and handlers
 
-// TEST(16): Add unit test for the code
-// Learn how to create unit test for grpc server
-// how to make an integration test for grpc server and rest api ?
+// 
+
+
 
 //
 
@@ -80,7 +80,7 @@ type Node interface {
 	FetchBlockchain(peer *FullNode) ([]*pb.Block, error)
 	UpdateBlockchain([]*pb.Block) error
 	GetWallets() *wallet.Wallets
-	AddWallet(*wallet.Wallet)
+	AddWallet()
 	BroadcastBlock(context.Context, *pb.Block) (*pb.Response, error)
 	AddTSXMempool(context.Context, *pb.Transaction) (*pb.Empty, error)
 	CloseDB()
@@ -352,8 +352,8 @@ func (s *BaseNode) broadcastToFullNode(ctx context.Context, in *pb.Transaction, 
 	return nil
 }
 
-// TODO(17): Ignore the WalletNode for now
-// it is just used to notify the wallet about the transaction
+// 
+
 
 // func (s *BaseNode) broadcastToWalletNode(ctx context.Context, in *pb.Transaction, peer *WalletNode) error {
 //     fmt.Printf("Sending TSX to wallet node %s\n", peer.GetAddress())
@@ -390,8 +390,8 @@ func (s *BaseNode) SetBlockchain(bc *blockchain.BlockChain) {
 func (s *BaseNode) GetPort() string {
 	return s.Address[strings.LastIndex(s.Address, ":")+1:]
 }
-func (s *BaseNode) AddWallet(w *wallet.Wallet) {
-	s.Wallets.Wallets[string(w.PublicKey)] = w
+func (s *BaseNode) AddWallet(){
+	s.Wallets.AddWallet(s.GetAddress())
 }
 func (s *BaseNode) AddPeer(ctx context.Context, in *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
 	baseNode := BaseNode{
@@ -973,9 +973,12 @@ func httpServer(l net.Listener, n Node) error {
 		w.Write(response)
 	})
 	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
-		fromWallet := r.FormValue("from")
+        fromWallet := r.FormValue("from")
 		toWallet := r.FormValue("to")
 		amountStr := r.FormValue("amount")
+        fmt.Println("From: ", fromWallet)
+        fmt.Println("To: ", toWallet)
+        fmt.Println("Amount: ", amountStr)
 		amount := util.StrToInt(amountStr)
 		if !util.ValidateAddress(fromWallet) {
 			w.WriteHeader(http.StatusBadRequest)
@@ -1056,9 +1059,8 @@ func httpServer(l net.Listener, n Node) error {
 		w.Write(response)
 	})
 	mux.HandleFunc("/AddWallet", func(w http.ResponseWriter, r *http.Request) {
-		wallet := wallet.NewWallet()
-		n.AddWallet(wallet)
-		response, _ := json.Marshal(wallet)
+		n.AddWallet()
+		response, _ := json.Marshal(n.GetWallets())
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(response)
 	})

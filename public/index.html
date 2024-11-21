@@ -9,7 +9,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/style.css" />
-    <script src="https://cdn.rawgit.com/anvaka/VivaGraphJS/v0.9.0/dist/vivagraph.js"></script>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
   </head>
 
   <body class="bg-gray-900 text-green-400 font-mono">
@@ -64,7 +64,7 @@
         <!-- Network Graph with white background -->
         <div class="col-span-4 debug-panel p-2 rounded mt-2 bg-white">
           <div class="text-xs text-gray-400 mb-2">Network Graph</div>
-          <div id="network-graph" class="h-64 bg-white"></div>
+          <div id="network-graph" class="h-64"></div>
         </div>
 
         <!-- Debug Log -->
@@ -109,6 +109,7 @@
             />
             <button
               type="submit"
+      
               class="bg-gray-800 text-green-400 text-xs px-3 py-1 rounded hover:bg-gray-700"
             >
               Execute
@@ -161,7 +162,8 @@
     </div>
     <script>
       const API_PORT = "{{.Port}}";
-  </script>
-  <script src="/static/script.js"></script>
+    </script>
+    <script src="/static/script.js"></script>
+    <script src="https://cdn.rawgit.com/anvaka/VivaGraphJS/v0.9.0/dist/vivagraph.js"></script>
   </body>
 </html>
