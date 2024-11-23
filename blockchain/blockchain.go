@@ -24,13 +24,13 @@ type BlockChain struct {
 	LastHash       []byte
 	Database       storage.StorageInterface
 	LastTimeUpdate int64
-	Height         int
+	Height         int64
 }
 
 func (bc *BlockChain) GetLastHash() []byte {
 	return bc.LastHash
 }
-func (bc *BlockChain) GetHeight() int {
+func (bc *BlockChain) GetHeight() int64 {
 	return bc.Height
 }
 func (bc *BlockChain) GetLastTimeUpdate() int64 {
@@ -129,7 +129,7 @@ func NewBlockChain(address string, nodeId string) *BlockChain {
 	db, err := storage.GetInstance(nodeId)
 	nodeID = nodeId
 	lastTimeUpdate := int64(0)
-	height := 0
+	height := int64(0)
 	util.Handle(err)
 	lastHash, err = db.GetLastHash()
 	if err != nil && address != "" {
@@ -148,7 +148,7 @@ func NewBlockChain(address string, nodeId string) *BlockChain {
 			err = db.SaveHeight(height)
 			util.Handle(err)
 		} else {
-			return &BlockChain{nil, db, 0, 0}
+			return &BlockChain{[]byte{}, db, lastTimeUpdate, height}
 		}
 	}
 	return &BlockChain{lastHash, db, lastTimeUpdate, height}
@@ -171,7 +171,7 @@ func ContinueBlockChain(nodeId string) *BlockChain {
 	util.Handle(err)
 	height, err := db.GetHeight()
 	util.Handle(err)
-	return &BlockChain{lastHash, db, lastTimeUpdate, int(height)}
+	return &BlockChain{lastHash, db, lastTimeUpdate, height}
 }
 func (bc *BlockChain) Close() {
 	bc.Database.Close()

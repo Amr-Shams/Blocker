@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
-	n "github.com/Amr-Shams/Blocker/node"
 	"github.com/Amr-Shams/Blocker/wallet"
 	"github.com/pkg/profile"
 	"github.com/samber/lo"
@@ -58,7 +57,6 @@ func NewNodeCommand() *cobra.Command {
 }
 
 func NewWalletCommand() *cobra.Command {
-
 	result := &cobra.Command{
 		Use:     "wallet",
 		Short:   "Blockchain Wallet",
@@ -75,8 +73,7 @@ func NewWalletCommand() *cobra.Command {
 	addCommandsToWallet(result)
 	return result
 }
-
-func NewRootCommand() *cobra.Command {
+func BaseCommand() *cobra.Command {
 	var (
 		start    time.Time
 		profiler prof
@@ -105,18 +102,17 @@ func NewRootCommand() *cobra.Command {
 			return unusedCommands, cobra.ShellCompDirectiveNoFileComp
 		},
 	}
-
 	flags := root.PersistentFlags()
-
 	flags.BoolP("profile", "p", false, "Enable profiling")
 	flags.StringP("NodeID", "n", "", "Node ID for the blockchain")
+	viper.AutomaticEnv()
+
+	_ = viper.BindPFlags(flags)
+	return root
+}
+func NewBaseCommand() *cobra.Command {
+	root := BaseCommand()
 	root.AddCommand(NewNodeCommand())
 	root.AddCommand(NewWalletCommand())
-	root.AddCommand(n.StartFullNodeCommand())
-	root.AddCommand(n.StartWalletNodeCommand())
-	viper.AutomaticEnv()
-	_ = viper.BindPFlags(flags)
-
 	return root
-
 }

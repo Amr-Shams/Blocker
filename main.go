@@ -1,13 +1,11 @@
 package main
 
 import (
-	"github.com/Amr-Shams/Blocker/cmd"
+	"github.com/Amr-Shams/Blocker/rootCmd"
 )
 
 func main() {
-	// 
-	
-	cmd := cmd.NewRootCommand()
+	cmd := rootCmd.NewRootCommand()
 	if err := cmd.Execute(); err != nil {
 		panic(err)
 	}

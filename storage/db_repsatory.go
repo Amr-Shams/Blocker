@@ -15,8 +15,10 @@ func (s *storage) SaveLastTimeUpdate(TimeStamp int64) error {
 	return s.db.Put([]byte("ltu"), util.IntToHex(TimeStamp), nil)
 }
 
-func (s *storage) SaveHeight(height int) error {
-	return s.db.Put([]byte("h"), util.IntToHex(int64(height)), nil)
+func (s *storage) SaveHeight(height int64) error {
+	data := make([]byte, 8)
+    binary.LittleEndian.PutUint64(data, uint64(height))
+    return s.db.Put([]byte("h"), data, nil)
 }
 
 func (s *storage) GetLastHash() ([]byte, error) {
@@ -31,12 +33,12 @@ func (s *storage) GetLastTimeUpdate() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(data)), nil
 }
 
-func (s *storage) GetHeight() (int, error) {
+func (s *storage) GetHeight() (int64, error) {
 	data, err := s.db.Get([]byte("h"), nil)
 	if err != nil {
 		return 0, err
 	}
-	return util.BytesToInt(data), nil
+	return int64(binary.LittleEndian.Uint64(data)), nil
 }
 
 func (s *storage) SaveBlock(key []byte, value []byte) error {

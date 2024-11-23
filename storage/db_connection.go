@@ -9,23 +9,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 )
 
-type StorageInterface interface {
-	NewIterator() iterator.Iterator
-	SaveLastHash(hash []byte) error
-	SaveLastTimeUpdate(TimeStamp int64) error
-	SaveHeight(height int) error
-	GetLastHash() ([]byte, error)
-	GetLastTimeUpdate() (int64, error)
-	GetHeight() (int, error)
-	SaveBlock(key []byte, value []byte) error
-	SaveBatch(batch *leveldb.Batch) error
-	GetBlock(key []byte) ([]byte, error)
-	DeleteBlock(key []byte) error
-	Close() error
-	DBExist() bool
-	Clean() error
-}
-
 var (
 	instance *storage
 	once     sync.Once
@@ -40,6 +23,8 @@ type storage struct {
 	db     *leveldb.DB
 }
 
+var _ StorageInterface = &storage{}
+
 func getInstance(nodeId string) (*storage, error) {
 	var err error
 	once.Do(func() {
@@ -50,7 +35,6 @@ func getInstance(nodeId string) (*storage, error) {
 			fmt.Println("error opening db file")
 			instance.db = nil
 		}
-		fmt.Println(instance)
 	})
 	return instance, err
 }

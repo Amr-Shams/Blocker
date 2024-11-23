@@ -8,8 +8,10 @@
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.12.0/css/xterm.css" />
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+
   </head>
 
   <body class="bg-gray-900 text-green-400 font-mono">
@@ -56,10 +58,10 @@
           <div id="nodes-view" class="memory-view h-64 overflow-y-auto"></div>
         </div>
 
-        <!-- Mempool Monitor -->
+        <!-- Transaction History -->
         <div class="col-span-4 debug-panel p-2 rounded">
-          <div class="text-xs text-gray-400 mb-2">Mempool Monitor</div>
-          <div id="mempool-view" class="memory-view h-64 overflow-y-auto"></div>
+          <div class="text-xs text-gray-400 mb-2">Transaction History</div>
+          <div id="transaction-view" class="memory-view h-64 overflow-y-auto"></div>
         </div>
         <!-- Network Graph with white background -->
         <div class="col-span-4 debug-panel p-2 rounded mt-2 bg-white">
@@ -117,7 +119,10 @@
           </div>
         </form>
       </div>
-
+      <div class="col-span-3 debug-panel p-2 rounded mt-2 h-32 bg-slate-900">
+        <div id="terminal" class="h-full w-full">
+        </div>
+      </div>      
       <!-- Control Bar -->
       <div
         class="fixed bottom-0 left-0 right-0 bg-gray-800 p-2 border-t border-gray-700"
@@ -163,7 +168,9 @@
     <script>
       const API_PORT = "{{.Port}}";
     </script>
-    <script src="/static/script.js"></script>
+        <script type="module" src="/static/js/script.js"></script>
     <script src="https://cdn.rawgit.com/anvaka/VivaGraphJS/v0.9.0/dist/vivagraph.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@4.12.0/lib/xterm.js"></script>
+
   </body>
 </html>
