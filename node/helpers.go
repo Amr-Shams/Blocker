@@ -3,9 +3,11 @@ package node
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
 	pb "github.com/Amr-Shams/Blocker/server"
+	"github.com/Amr-Shams/Blocker/util"
 	"github.com/Amr-Shams/Blocker/wallet"
 	"golang.org/x/exp/rand"
 )
@@ -230,4 +232,20 @@ func mapTSXhistoryToBytes(history *TSXhistory) []byte {
 		return nil
 	}
 	return data
+}
+func validateSendRequest(r *http.Request) (string, string, int, error) {
+	fromWallet := r.FormValue("from")
+	toWallet := r.FormValue("to")
+	amountStr := r.FormValue("amount")
+	amount := util.StrToInt(amountStr)
+	if !util.ValidateAddress(fromWallet) {
+		return "", "", 0, fmt.Errorf("invalid from address")
+	}
+	if !util.ValidateAddress(toWallet) {
+		return "", "", 0, fmt.Errorf("invalid to address")
+	}
+	if !util.ValidateAmount(amount) {
+		return "", "", 0, fmt.Errorf("invalid amount")
+	}
+	return fromWallet, toWallet, amount, nil
 }

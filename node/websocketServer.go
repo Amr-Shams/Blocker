@@ -69,7 +69,9 @@ func handleWSConnection(conn net.Conn, n serverNode) {
 
 	}
 }
-
+// ADD(20): CMD to the list of available commands
+// to excute more commands like createing a blockchain etc 
+// that means I have to refactore the code to work with the new commands 
 func handleWSMessage(msg []byte, n Node) (response []byte, err error) {
 	var msgType wsMessage
 	if err := json.Unmarshal(msg, &msgType); err != nil {

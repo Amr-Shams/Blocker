@@ -87,23 +87,8 @@ func handelBalanceRequest(w http.ResponseWriter, _ *http.Request, n Node) {
 	w.Write(response)
 }
 
-func validateSendRequest(r *http.Request) (string, string, int, error) {
-	fromWallet := r.FormValue("from")
-	toWallet := r.FormValue("to")
-	amountStr := r.FormValue("amount")
-	amount := util.StrToInt(amountStr)
-	if !util.ValidateAddress(fromWallet) {
-		return "", "", 0, fmt.Errorf("invalid from address")
-	}
-	if !util.ValidateAddress(toWallet) {
-		return "", "", 0, fmt.Errorf("invalid to address")
-	}
-	if !util.ValidateAmount(amount) {
-		return "", "", 0, fmt.Errorf("invalid amount")
-	}
-	return fromWallet, toWallet, amount, nil
-}
-
+// ADD(19): localStorage cache for post request 
+// to handle the case of the user refreshing the page after sending a transaction
 func handelSendRequest(w http.ResponseWriter, r *http.Request, n Node) {
 	fromWallet, toWallet, amount, err := validateSendRequest(r)
 	if err != nil {
