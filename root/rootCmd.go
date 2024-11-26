@@ -7,7 +7,7 @@ import (
 )
 
 func NewRootCommand() *cobra.Command {
-	root := cmd.NewBaseCommand()
+	root := cmd.BaseCommand()
 	root.AddCommand(n.StartFullNodeCommand())
 	root.AddCommand(n.StartWalletNodeCommand())
 	return root
