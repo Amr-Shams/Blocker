@@ -187,3 +187,7 @@ Here are the main commands you can use in Blocker:
   - `xterm.js` (for terminal emulator)
   - `VivaGraphJS` (for graph visualization)
   - Docker (for running multiple node instances)
+ 
+- this implementation is part of the [series](https://www.youtube.com/watch?v=mYlHT9bB6OE&list=PLJbE2Yu2zumC5QE39TQHBLYJDB2gfFE5Q) but expnaded into a more and more features for the sake of education
+- I have not tested the presentation of the app (frontend) only on safari if there are any problem I have no idea how to solve them
+
