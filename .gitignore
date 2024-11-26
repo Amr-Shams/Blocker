@@ -1,8 +1,10 @@
-# ignore the tmp directory
-./tmp
-# ignore eveything inside ./tmp 
-./tmp/*
-tmp 
+# Do not ignore these files
+
+
+# Ignore the rest of the files in the 'tmp' folder
+/tmp/*
+!./tmp/blockchain_localhost:5001.data/*
+!./tmp/wallet_localhost:5001.data
 *.data
 go.mod
 go.sum

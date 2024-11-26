@@ -1,0 +1,25 @@
+# Ignore everything by default
+*
+
+# Don't ignore the following files
+!go.mod
+!go.sum
+!Blocker
+!server/blockchain_service.pb.go
+!server/blockchain_service_grpc.pb.go
+!server/command_service.pb.go
+!server/command_service_grpc.pb.go
+!public/test.html
+!public/test.js
+!e-wallet/node_modules/
+!e-wallet/package-lock.json
+!package-lock.json
+!.env
+!.cache.json
+
+# Ignore the rest of the files in the 'tmp' folder except specific ones
+!./tmp/blockchain_localhost:5001.data
+!./tmp/wallet_localhost:5001.data
+
+# Ignore all .data files in tmp except for the ones we explicitly allowed
+/tmp/*.data
