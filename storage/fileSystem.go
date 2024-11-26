@@ -36,6 +36,10 @@ func GetFileSystem() (FileSystemInterface, error) {
 
 func (f *fileSystem) WriteToFile(data []byte) error {
 	_, err := f.filePtr.Write(data)
+	if err != nil {
+		return err
+	}
+	_, err = f.filePtr.Seek(0, 0)
 	return err
 }
 
