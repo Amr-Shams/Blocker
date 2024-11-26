@@ -5,7 +5,6 @@ export default class TerminalDebugger {
         this.term = new Terminal({
             cursorBlink: true,
             rows: 7,
-            cols: 60,
             theme: {
                 background: '#1e1e1e',
                 padding: '0',
@@ -16,14 +15,18 @@ export default class TerminalDebugger {
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
             rendererType: 'canvas',
             convertEol: true,
+            mouseEvents: true,
+            clipboard: true,
         });
         this.socketNumber = window.location.port;
         this.socket = new WebSocket(`ws://localhost:${this.socketNumber}`);
-        this.initialize();
         this.historyIndex = -1;
         this.commandHistory = [];
         this.inputBuffer = "";
-        this.isProcessingKey = false; 
+        this.isProcessingKey = false;
+
+        this.initialize();
+
     }
 
     initialize() {
@@ -43,7 +46,6 @@ export default class TerminalDebugger {
                 this.fitAddon.fit();
             });
         }
-
         this.term.onKey(({ key, domEvent }) => {
             if (this.isProcessingKey) return;
             this.isProcessingKey = true;
@@ -114,7 +116,7 @@ export default class TerminalDebugger {
                         this.term.write('\r\x1b[K' + this.getPrompt());
                     }
                     return;
-                
+
             }
         }
         if (key >= String.fromCharCode(0x20) && key <= String.fromCharCode(0x7E)) {
@@ -144,7 +146,7 @@ export default class TerminalDebugger {
     }
 
     handleOnClose() {
-        this.term.write('\r\nConnection closed remotely\r\n'); 
+        this.term.write('\r\nConnection closed remotely\r\n');
         setTimeout(() => {
             this.term.write('Reconnecting...\r\n');
             this.socket = new WebSocket(`ws://localhost:${this.socketNumber}`);
@@ -154,7 +156,6 @@ export default class TerminalDebugger {
             this.socket.onerror = (error) => this.handleOnError(error);
         }, 1000);
     }
-
     handleOnError(error) {
         this.term.write('\r\n' + error.message + '\r\n');
         this.term.write(this.getPrompt());

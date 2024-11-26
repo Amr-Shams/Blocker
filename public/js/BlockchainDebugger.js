@@ -81,11 +81,11 @@ export default class BlockchainDebugger {
             const response = await fetch(
                 `${API_CONFIG.baseUrl}${API_CONFIG.endpoints[endpoint]}`
             );
-            
+
             if (!response.ok) {
                 throw new Error(`API Error: ${response.statusText}`);
             }
-            
+
             return await response.json();
         } catch (error) {
             this.domManager.logMessage(`API Error: ${error.message}`, "error");
@@ -130,7 +130,8 @@ export default class BlockchainDebugger {
     updateState(newState) {
         const previousState = { ...this.state };
         Object.assign(this.state, newState);
-        if (newState.nodes !== previousState.nodes) {
+        if (JSON.stringify(newState.nodes) !== JSON.stringify(previousState.nodes)) {
+          console.log("changed nodes");
             this.domManager.updateNodeList(newState.nodes, previousState.nodes, stateName);
             this.updateNetworkGraph();
         }
@@ -138,7 +139,7 @@ export default class BlockchainDebugger {
         if (newState.balances !== previousState.balances) {
             this.domManager.updateBalances(newState.balances, previousState.balances);
         }
-        
+
         if (newState.blocks !== previousState.blocks) {
             this.domManager.updateBlockView(newState.blocks, newState.type);
         }
@@ -158,7 +159,7 @@ export default class BlockchainDebugger {
      */
     async handleTransaction(event) {
         event.preventDefault();
-        
+
         try {
             const formData = new FormData(event.target);
             const transaction = {
@@ -182,7 +183,7 @@ export default class BlockchainDebugger {
             this.domManager.updateTransactionHistory(transaction);
             this.domManager.logMessage("Transaction sent successfully");
             await this.refreshData();
-            
+
         } catch (error) {
             this.domManager.logMessage(`Transaction error: ${error.message}`, "error");
         }
@@ -204,7 +205,7 @@ export default class BlockchainDebugger {
 
             this.domManager.logMessage("Wallet added successfully");
             await this.refreshData();
-            
+
         } catch (error) {
             this.domManager.logMessage(`Failed to add wallet: ${error.message}`, "error");
         }
@@ -249,7 +250,7 @@ export default class BlockchainDebugger {
         this.networkGraph = Viva.Graph.View.renderer(graph, {
             container: document.getElementById("network-graph"),
         });
-        
+
         this.networkGraph.run();
     }
 

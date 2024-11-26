@@ -1,4 +1,4 @@
-package rootCmd
+package root
 
 import (
 	cmd "github.com/Amr-Shams/Blocker/cmd"

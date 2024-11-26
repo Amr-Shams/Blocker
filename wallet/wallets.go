@@ -38,15 +38,15 @@ func Deserialize(data []byte) *Wallets {
 func Save(ws *Wallets, nodeId string) {
 	content := ws.Serialize()
 	StoreFile := fmt.Sprintf(StoreFile, nodeId)
-    f, err := os.OpenFile(StoreFile, os.O_APPEND | os.O_CREATE | os.O_WRONLY, 0644)
-    util.Handle(err)
-    if _, err :=f.Write(content); err != nil {
-        f.Close()
-        util.Handle(err)
-    }
-    if err := f.Close(); err != nil {
-        util.Handle(err)
-    }
+	f, err := os.OpenFile(StoreFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	util.Handle(err)
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		util.Handle(err)
+	}
+	if err := f.Close(); err != nil {
+		util.Handle(err)
+	}
 }
 func LoadWallets(nodeId string) *Wallets {
 	StoreFile := fmt.Sprintf(StoreFile, nodeId)
@@ -82,9 +82,11 @@ func (ws *Wallets) Authenticated(address string) bool {
 	_, ok := ws.Wallets[address]
 	return ok
 }
-func GetAllAddresses(nodeId string) {
+func GetAllAddresses(nodeId string) []string {
+	result := []string{}
 	Wallets := LoadWallets(nodeId).Wallets
 	for address := range Wallets {
-		fmt.Println(address)
+		result = append(result, address)
 	}
+	return result
 }
