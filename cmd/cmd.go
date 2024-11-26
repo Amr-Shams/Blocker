@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Amr-Shams/Blocker/blockchain"
-	n "github.com/Amr-Shams/Blocker/node"
 	"github.com/Amr-Shams/Blocker/wallet"
 	"github.com/pkg/profile"
 	"github.com/samber/lo"
@@ -17,23 +17,19 @@ import (
 // it is a good way as there are a lot of commands
 
 var (
-	avilaibleNodeCommands   = []string{"print", "create", "clean", "refresh"}
-	avilaibleWalletCommands = []string{"createwallet", "listalladdress", "clean", "inquirebalance", "send"}
+	avilaibleNodeCommands   = []string{"print", "create", "clean"}
+	avilaibleWalletCommands = []string{"send", "clean"}
 )
 
 func addCommandsToNode(node *cobra.Command) {
 	node.AddCommand(blockchain.PrintCommand())
 	node.AddCommand(blockchain.CreateBlockChainCommand())
 	node.AddCommand(blockchain.CleanCommand())
-	node.AddCommand(blockchain.ReindexCommand())
 }
 
 func addCommandsToWallet(w *cobra.Command) {
-	w.AddCommand(wallet.ListALLAdressCommand())
-	w.AddCommand(wallet.CreateWalletCommand())
-	w.AddCommand(wallet.InquireyBalanceCommand())
 	w.AddCommand(wallet.SendCommand())
-	w.AddCommand(wallet.PrintCommand())
+	w.AddCommand(wallet.CleanCommand())
 }
 
 type prof interface {
@@ -58,7 +54,6 @@ func NewNodeCommand() *cobra.Command {
 }
 
 func NewWalletCommand() *cobra.Command {
-
 	result := &cobra.Command{
 		Use:     "wallet",
 		Short:   "Blockchain Wallet",
@@ -75,8 +70,7 @@ func NewWalletCommand() *cobra.Command {
 	addCommandsToWallet(result)
 	return result
 }
-
-func NewRootCommand() *cobra.Command {
+func BaseCommand() *cobra.Command {
 	var (
 		start    time.Time
 		profiler prof
@@ -92,7 +86,10 @@ func NewRootCommand() *cobra.Command {
 			if viper.GetString("NodeID") == "" {
 				panic("NodeID is required for the blockchain")
 			}
-			viper.Set("NodeID", fmt.Sprintf("localhost:%s", viper.GetString("NodeID")))
+			nodeID := viper.GetString("NodeID")
+			if !strings.Contains(nodeID, "localhost:") {
+				viper.Set("NodeID", fmt.Sprintf("localhost:%s", nodeID))
+			}
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if viper.GetBool("profile") {
@@ -105,18 +102,17 @@ func NewRootCommand() *cobra.Command {
 			return unusedCommands, cobra.ShellCompDirectiveNoFileComp
 		},
 	}
-
 	flags := root.PersistentFlags()
-
 	flags.BoolP("profile", "p", false, "Enable profiling")
 	flags.StringP("NodeID", "n", "", "Node ID for the blockchain")
+	viper.AutomaticEnv()
+
+	_ = viper.BindPFlags(flags)
+	return root
+}
+func NewBaseCommand() *cobra.Command {
+	root := BaseCommand()
 	root.AddCommand(NewNodeCommand())
 	root.AddCommand(NewWalletCommand())
-	root.AddCommand(n.StartFullNodeCommand())
-	root.AddCommand(n.StartWalletNodeCommand())
-	viper.AutomaticEnv()
-	_ = viper.BindPFlags(flags)
-
 	return root
-
 }

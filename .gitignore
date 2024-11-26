@@ -12,4 +12,11 @@ e-wallet/node_modules
 e-wallet/package-lock.json
 .env 
 .cache.json
-
+node_modules
+server/blockchain_service.pb.go
+server/blockchain_service_grpc.pb.go
+server/command_service.pb.go
+server/command_service_grpc.pb.go
+public/test.html
+public/test.js
+package-lock.json

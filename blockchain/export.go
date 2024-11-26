@@ -1,11 +1,14 @@
 package blockchain
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"runtime"
 
+	"github.com/Amr-Shams/Blocker/storage"
 	"github.com/Amr-Shams/Blocker/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -15,10 +18,18 @@ func PrintCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "print",
 		Short: "Prints blockchain",
-		Run: func(_ *cobra.Command, _ []string) {
+		Run: func(cmd *cobra.Command, args []string) {
 			nodeID := viper.GetString("NodeID")
 			chain := ContinueBlockChain(nodeID)
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
 			chain.Print()
+			w.Close()
+			os.Stdout = oldStdout
+			var buf bytes.Buffer
+			_, _ = io.Copy(&buf, r)
+			cmd.Println(buf.String())
 		},
 	}
 }
@@ -27,7 +38,7 @@ func CreateBlockChainCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new blockchain",
-		Run: func(_ *cobra.Command, _ []string) {
+		Run: func(cmd *cobra.Command, _ []string) {
 			address := viper.GetString("wallet")
 			if !util.ValidateAddress(address) {
 				log.Println("Invalid address")
@@ -38,7 +49,15 @@ func CreateBlockChainCommand() *cobra.Command {
 			UTXOSet := UTXOSet{bc}
 			UTXOSet.Reindex()
 			defer bc.Close()
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
 			fmt.Println("Blockchain created")
+			w.Close()
+			os.Stdout = oldStdout
+			var buf bytes.Buffer
+			_, _ = io.Copy(&buf, r)
+			cmd.Println(buf.String())
 		},
 	}
 	flags := cmd.PersistentFlags()
@@ -51,26 +70,19 @@ func CleanCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "clean",
 		Short: "Clean the blockchain",
-		Run: func(_ *cobra.Command, _ []string) {
+		Run: func(cmd *cobra.Command, _ []string) {
 			nodeID := viper.GetString("NodeID")
-			dbFile := fmt.Sprintf(dbFile, nodeID)
-			os.RemoveAll(dbFile)
-		},
-	}
-}
-
-func ReindexCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "refresh",
-		Short: "Reindex the UTXO set",
-		Run: func(_ *cobra.Command, _ []string) {
-			nodeID := viper.GetString("NodeID")
-			bc := ContinueBlockChain(nodeID)
-			defer bc.Close()
-			UTXOSet := UTXOSet{bc}
-			UTXOSet.Reindex()
-			count := UTXOSet.CountTransactions()
-			fmt.Printf("Done! There are %d transactions in the UTXO set.\n", count)
+			db, _ := storage.GetInstance(nodeID)
+			defer db.Clean()
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+			fmt.Println("Blockchain cleaned")
+			w.Close()
+			os.Stdout = oldStdout
+			var buf bytes.Buffer
+			_, _ = io.Copy(&buf, r)
+			cmd.Println(buf.String())
 		},
 	}
 }

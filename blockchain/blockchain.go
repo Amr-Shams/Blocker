@@ -3,45 +3,38 @@ package blockchain
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"os"
-	"runtime"
 
+	"github.com/Amr-Shams/Blocker/storage"
 	"github.com/Amr-Shams/Blocker/util"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 const (
-	dbFile  = "./tmp/blockchain_%s.data"
 	genesis = "First block"
+)
+
+var (
+	nodeID = "3000"
 )
 
 type BlockChain struct {
 	LastHash       []byte
-	Database       *leveldb.DB
+	Database       storage.StorageInterface
 	LastTimeUpdate int64
-	Height         int
+	Height         int64
 }
 
 func (bc *BlockChain) GetLastHash() []byte {
 	return bc.LastHash
 }
-func (bc *BlockChain) GetHeight() int {
+func (bc *BlockChain) GetHeight() int64 {
 	return bc.Height
 }
 func (bc *BlockChain) GetLastTimeUpdate() int64 {
 	return bc.LastTimeUpdate
-}
-func DBExist(nodeId string) bool {
-	dbFile := fmt.Sprintf(dbFile, nodeId)
-	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
-		return false
-	}
-	return true
 }
 
 func (bc *BlockChain) AddBlock(txs []*Transaction) (*Block, bool) {
@@ -55,22 +48,22 @@ func (bc *BlockChain) AddBlock(txs []*Transaction) (*Block, bool) {
 	bc.LastHash = block.Hash
 	bc.LastTimeUpdate = block.TimeStamp.Unix()
 	bc.Height++
-	err := bc.Database.Put(block.Hash, block.Serialize(), nil)
+	err := bc.Database.SaveBlock(block.Hash, block.Serialize())
 	if err != nil && bytes.Contains([]byte(err.Error()), []byte("leveldb: key exists")) {
 		log.Printf("Block already exists: %x", block.Hash)
 		return block, false
 	}
-	err = bc.Database.Put([]byte("lh"), block.Hash, nil)
+	err = bc.Database.SaveLastHash(block.Hash)
 	if err != nil {
 		util.Handle(err)
 		return nil, false
 	}
-	err = bc.Database.Put([]byte("ltu"), util.IntToHex(block.TimeStamp.Unix()), nil)
+	err = bc.Database.SaveLastTimeUpdate(bc.LastTimeUpdate)
 	if err != nil {
 		util.Handle(err)
 		return nil, false
 	}
-	err = bc.Database.Put([]byte("h"), util.IntToHex(int64(bc.Height)), nil)
+	err = bc.Database.SaveHeight(bc.Height)
 	if err != nil {
 		util.Handle(err)
 		return nil, false
@@ -79,7 +72,7 @@ func (bc *BlockChain) AddBlock(txs []*Transaction) (*Block, bool) {
 }
 
 func (bc *BlockChain) GetBlock(blockHash []byte) *Block {
-	blockData, err := bc.Database.Get(blockHash, nil)
+	blockData, err := bc.Database.GetBlock(blockHash)
 	if err != nil {
 		return nil
 	}
@@ -87,15 +80,7 @@ func (bc *BlockChain) GetBlock(blockHash []byte) *Block {
 	block.Deserialize(blockData)
 	return &block
 }
-func (bc *BlockChain) HasBlock(b *Block) (bool, Block) {
-	blockData, err := bc.Database.Get(b.Hash, nil)
-	if err != nil {
-		return false, Block{}
-	}
-	var block Block
-	block.Deserialize(blockData)
-	return true, block
-}
+
 func (bc *BlockChain) Print() {
 	if bc.Database == nil {
 		fmt.Println("No database")
@@ -125,7 +110,6 @@ func (bc *BlockChain) GetBlocks() []*Block {
 		return result
 	}
 	currentHash := bc.LastHash
-	fmt.Println("Last hash: ", hex.EncodeToString(currentHash))
 	for {
 		block := bc.GetBlock(currentHash)
 		if block == nil {
@@ -139,71 +123,55 @@ func (bc *BlockChain) GetBlocks() []*Block {
 	}
 	return result
 }
-func NewEmptyBlockChain(nodeId string) *BlockChain {
-	dbFile := fmt.Sprintf(dbFile, nodeId)
-	db, err := leveldb.OpenFile(dbFile, &opt.Options{})
-	util.Handle(err)
-	return &BlockChain{nil, db, 0, 0}
-}
+
 func NewBlockChain(address string, nodeId string) *BlockChain {
 	var lastHash []byte
-	if DBExist(nodeId) {
-		fmt.Println("Blockchain already exists")
-		runtime.Goexit()
-	}
-	dbFile := fmt.Sprintf(dbFile, nodeId)
-	db, err := leveldb.OpenFile(dbFile, &opt.Options{ErrorIfExist: true})
+	db, err := storage.GetInstance(nodeId)
+	nodeID = nodeId
 	lastTimeUpdate := int64(0)
-	height := 0
+	height := int64(0)
 	util.Handle(err)
-	lastHash, err = db.Get([]byte("lh"), nil)
-	if err != nil {
+	lastHash, err = db.GetLastHash()
+	if err != nil && address != "" {
 		if err == leveldb.ErrNotFound {
 			cbtx := NewCoinbaseTX(address, genesis)
 			genesis := Genesis(cbtx)
 			lastHash = genesis.Hash
 			lastTimeUpdate = genesis.TimeStamp.Unix()
 			height = 1
-			err = db.Put(genesis.Hash, genesis.Serialize(), nil)
+			err = db.SaveBlock(genesis.Hash, genesis.Serialize())
 			util.Handle(err)
-			err = db.Put([]byte("ltu"), []byte(util.IntToHex(lastTimeUpdate)), nil)
+			err = db.SaveLastHash(genesis.Hash)
 			util.Handle(err)
-			err = db.Put([]byte("h"), []byte(util.IntToHex(int64(height))), nil)
+			err = db.SaveLastTimeUpdate(lastTimeUpdate)
 			util.Handle(err)
-			err = db.Put([]byte("lh"), genesis.Hash, nil)
+			err = db.SaveHeight(height)
 			util.Handle(err)
 		} else {
-			util.Handle(err)
+			return &BlockChain{[]byte{}, db, lastTimeUpdate, height}
 		}
 	}
 	return &BlockChain{lastHash, db, lastTimeUpdate, height}
 }
 
 func ContinueBlockChain(nodeId string) *BlockChain {
-	if !DBExist(nodeId) {
-		fmt.Println("No existing blockchain found!")
-		return NewEmptyBlockChain(nodeId)
-	}
-	dbFile := fmt.Sprintf(dbFile, nodeId)
-	fmt.Printf("Continue blockchain from %s\n", dbFile)
-	db, err := leveldb.OpenFile(dbFile, &opt.Options{})
+	db, err := storage.GetInstance(nodeId)
+	nodeID = nodeId
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
-	lastHash, err := db.Get([]byte("lh"), nil)
+	lastHash, err := db.GetLastHash()
 	if err == leveldb.ErrNotFound {
 		fmt.Println("No last hash found, initializing new blockchain")
-		db.Close()
-		return NewEmptyBlockChain(nodeId)
+		return NewBlockChain("", nodeId)
 	} else if err != nil {
 		log.Fatalf("Failed to get last hash: %v", err)
 	}
-	lastTimeUpdateByte, _ := db.Get([]byte("ltu"), nil)
-	heightByte, _ := db.Get([]byte("h"), nil)
-	lastTimeUpdate := int64(binary.LittleEndian.Uint64(lastTimeUpdateByte))
-	height := util.BytesToInt(heightByte)
-
-	return &BlockChain{lastHash, db, lastTimeUpdate, int(height)}
+	lastTimeUpdate, err := db.GetLastTimeUpdate()
+	util.Handle(err)
+	height, err := db.GetHeight()
+	util.Handle(err)
+	return &BlockChain{lastHash, db, lastTimeUpdate, height}
 }
 func (bc *BlockChain) Close() {
 	bc.Database.Close()
@@ -211,7 +179,7 @@ func (bc *BlockChain) Close() {
 func (bc *BlockChain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 	var unspentTXs []Transaction
 	spentTXOs := make(map[string][]int)
-	iter := bc.Database.NewIterator(nil, nil)
+	iter := bc.Database.NewIterator()
 	for {
 		iter.Next()
 		var block Block
@@ -250,7 +218,7 @@ func (bc *BlockChain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 func (bc *BlockChain) FindUTXO() map[string]TXOutputs {
 	UTXOs := make(map[string]TXOutputs)
 	spentUTXOs := make(map[string][]int)
-	iter := bc.Database.NewIterator(nil, nil)
+	iter := bc.Database.NewIterator()
 	for {
 		iter.Next()
 		var block Block
@@ -285,7 +253,7 @@ func (bc *BlockChain) FindUTXO() map[string]TXOutputs {
 }
 
 func (bc *BlockChain) FindTransaction(ID []byte) (Transaction, error) {
-	iter := bc.Database.NewIterator(nil, nil)
+	iter := bc.Database.NewIterator()
 	for iter.Next() {
 		var block Block
 		blockData := iter.Value()
@@ -318,26 +286,27 @@ func (bc *BlockChain) VerifyTransaction(tx *Transaction) bool {
 	return tx.Verify(prevTXs)
 }
 
-func (bc *BlockChain) AddEnireBlock(block *Block) bool {
+func (bc *BlockChain) AddEntireBlock(block *Block) bool {
 	bc.LastHash = block.Hash
 	bc.LastTimeUpdate = block.TimeStamp.Unix()
 	bc.Height++
-	err := bc.Database.Put(block.Hash, block.Serialize(), nil)
+	err := bc.Database.SaveBlock(block.Hash, block.Serialize())
 	if err != nil && bytes.Contains([]byte(err.Error()), []byte("leveldb: key exists")) {
 		log.Printf("Block already exists: %x", block.Hash)
 		return false
 	}
-	err = bc.Database.Put([]byte("lh"), block.Hash, nil)
+	util.Handle(err)
+	err = bc.Database.SaveLastHash(block.Hash)
 	if err != nil {
 		util.Handle(err)
 		return false
 	}
-	err = bc.Database.Put([]byte("ltu"), util.IntToHex(block.TimeStamp.Unix()), nil)
+	err = bc.Database.SaveLastTimeUpdate(block.TimeStamp.Unix())
 	if err != nil {
 		util.Handle(err)
 		return false
 	}
-	err = bc.Database.Put([]byte("h"), util.IntToHex(int64(bc.Height)), nil)
+	err = bc.Database.SaveHeight(bc.Height)
 	if err != nil {
 		util.Handle(err)
 		return false

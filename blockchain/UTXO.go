@@ -21,7 +21,7 @@ type UTXOSet struct {
 func (UTXO *UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
 	db := UTXO.BlockChain.Database
-	iter := db.NewIterator(nil, nil)
+	iter := db.NewIterator()
 	defer iter.Release()
 	var accumulated int
 	for iter.Next() {
@@ -45,12 +45,11 @@ func (UTXO *UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, m
 }
 func (UTXO *UTXOSet) FindUTXO(pubKeyHash []byte) []TXOutput {
 	db := UTXO.BlockChain.Database
-	iter := db.NewIterator(nil, nil)
+	iter := db.NewIterator()
 	defer iter.Release()
 	var UTXOs []TXOutput
 	for iter.Next() {
 		key := iter.Key()
-		fmt.Printf("key: %x\n", key)
 		if !bytes.HasPrefix(key, []byte(utxoPrefix)) {
 			fmt.Println("continue")
 			continue
@@ -67,7 +66,7 @@ func (UTXO *UTXOSet) FindUTXO(pubKeyHash []byte) []TXOutput {
 }
 func (UTXO *UTXOSet) CountTransactions() int {
 	db := UTXO.BlockChain.Database
-	iter := db.NewIterator(nil, nil)
+	iter := db.NewIterator()
 	defer iter.Release()
 	var count int
 	for iter.Next() {
@@ -83,14 +82,12 @@ func (u UTXOSet) Reindex() {
 	UTXO := u.BlockChain.FindUTXO()
 	batch := new(leveldb.Batch)
 	for txID, outs := range UTXO {
-		fmt.Printf("key: %s\n", txID)
 		key, err := hex.DecodeString(txID)
-		fmt.Printf("key: %x\n", key)
 		util.Handle(err)
 		key = append(utxoPrefix, key...)
 		batch.Put(key, outs.Serialize())
 	}
-	err := db.Write(batch, nil)
+	err := db.SaveBatch(batch)
 	util.Handle(err)
 }
 
@@ -101,7 +98,7 @@ func (u *UTXOSet) Update(block *Block) {
 			for _, in := range tx.Vin {
 				newOutputs := TXOutputs{}
 				key := append(utxoPrefix, in.Txid...)
-				value, err := db.Get(key, nil)
+				value, err := db.GetBlock(key)
 				util.Handle(err)
 				var outs TXOutputs
 				outs.Deserialize(value)
@@ -111,10 +108,10 @@ func (u *UTXOSet) Update(block *Block) {
 					}
 				}
 				if len(newOutputs.Outputs) == 0 {
-					err := db.Delete(key, nil)
+					err := db.DeleteBlock(key)
 					util.Handle(err)
 				} else {
-					err := db.Put(key, newOutputs.Serialize(), nil)
+					err := db.SaveBlock(key, newOutputs.Serialize())
 					util.Handle(err)
 				}
 			}
@@ -122,7 +119,7 @@ func (u *UTXOSet) Update(block *Block) {
 		newOutputs := TXOutputs{}
 		newOutputs.Outputs = append(newOutputs.Outputs, tx.Vout...)
 		key := append(utxoPrefix, tx.ID...)
-		err := db.Put(key, newOutputs.Serialize(), nil)
+		err := db.SaveBlock(key, newOutputs.Serialize())
 		util.Handle(err)
 	}
 }
@@ -130,7 +127,7 @@ func (u *UTXOSet) Update(block *Block) {
 func (u *UTXOSet) DeleteByPrefix() {
 	db := u.BlockChain.Database
 	batch := new(leveldb.Batch)
-	iter := db.NewIterator(nil, nil)
+	iter := db.NewIterator()
 	defer iter.Release()
 	for iter.Next() {
 		if bytes.HasPrefix(iter.Key(), utxoPrefix) {
@@ -138,9 +135,9 @@ func (u *UTXOSet) DeleteByPrefix() {
 			batch.Delete(iter.Key())
 		}
 		if batch.Len() >= max_number {
-			db.Write(batch, nil)
+			db.SaveBatch(batch)
 			batch.Reset()
 		}
 	}
-	db.Write(batch, nil)
+	db.SaveBatch(batch)
 }

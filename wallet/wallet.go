@@ -81,19 +81,19 @@ func (w *Wallet) UnmarshalJSON(data []byte) error {
 	w.PublicKey = []byte{}
 	d, ok := new(big.Int).SetString(privateKeyMap["D"].(string), 10)
 	if !ok {
-		err := errors.New("Error: Invalid D")
+		err := errors.New("error: Invalid D")
 		util.Handle(err)
 	}
 	w.PrivateKey.D = d
 	x, ok := new(big.Int).SetString(publicKeyMap["X"].(string), 10)
 	if !ok {
-		err := errors.New("Error: Invalid X")
+		err := errors.New("error: Invalid X")
 		util.Handle(err)
 	}
 	w.PrivateKey.PublicKey.X = x
 	y, ok := new(big.Int).SetString(publicKeyMap["Y"].(string), 10)
 	if !ok {
-		err := errors.New("Error: Invalid Y")
+		err := errors.New("error: Invalid Y")
 		util.Handle(err)
 	}
 	w.PrivateKey.PublicKey.Y = y
@@ -102,7 +102,7 @@ func (w *Wallet) UnmarshalJSON(data []byte) error {
 
 	pubKeyStr, ok := mapStringAny["PublicKey"].(string)
 	if !ok {
-		err := errors.New("Error: Invalid PublicKey")
+		err := errors.New("error: Invalid PublicKey")
 		util.Handle(err)
 	}
 	pubKeyBytes, err := hex.DecodeString(pubKeyStr)
@@ -136,7 +136,7 @@ func (ws *Wallets) NewTransaction(from, to string, amount int, UTXO *blockchain.
 		txID, err := hex.DecodeString(txid)
 		util.Handle(err)
 		for _, out := range outs {
-			input := blockchain.TXInput{txID, out, nil, w.PublicKey}
+			input := blockchain.TXInput{Txid: txID, Vout: out, Signature: nil, PubKey: w.PublicKey}
 			inputs = append(inputs, input)
 		}
 	}
@@ -144,7 +144,7 @@ func (ws *Wallets) NewTransaction(from, to string, amount int, UTXO *blockchain.
 	if acc > amount {
 		outputs = append(outputs, *blockchain.NewOutTsx(acc-amount, from))
 	}
-	tx := blockchain.Transaction{nil, inputs, outputs}
+	tx := blockchain.Transaction{ID: nil, Vin: inputs, Vout: outputs}
 	tx.SetID()
 	UTXO.BlockChain.SignTransaction(&tx, w.PrivateKey)
 	return &tx
