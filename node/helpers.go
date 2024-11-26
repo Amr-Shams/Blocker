@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -215,16 +216,30 @@ func mapBlockchainTSXsToServerTSXs(tsxs []*blockchain.Transaction) []*pb.Transac
 
 func mapBytestoTSXhistory(data []byte) []*TSXhistory {
 	history := []*TSXhistory{}
-	err := json.Unmarshal(data, &history)
-	if err == nil {
-		return history
+	objects := bytes.Split(data, []byte("}{"))
+	if len(objects) == 1 {
+		singleHistory := &TSXhistory{}
+		err := json.Unmarshal(data, singleHistory)
+		if err == nil {
+			return []*TSXhistory{singleHistory}
+		}
+		return nil
 	}
-	singleHistory := &TSXhistory{}
-	err = json.Unmarshal(data, singleHistory)
-	if err == nil {
-		return []*TSXhistory{singleHistory}
+	for i, obj := range objects {
+		if i == 0 {
+			obj = append(obj, '}')
+		} else if i == len(objects)-1 {
+			obj = append([]byte("{"), obj...)
+		} else {
+			obj = append([]byte("{"), append(obj, '}')...)
+		}
+		singleHistory := &TSXhistory{}
+		err := json.Unmarshal(obj, singleHistory)
+		if err == nil {
+			history = append(history, singleHistory)
+		}
 	}
-	return nil
+	return history
 }
 func mapTSXhistoryToBytes(history *TSXhistory) []byte {
 	data, err := json.Marshal(history)

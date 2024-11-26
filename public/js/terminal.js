@@ -4,7 +4,7 @@ export default class TerminalDebugger {
     constructor() {
         this.term = new Terminal({
             cursorBlink: true,
-            rows: 7,
+            rows: 5,
             theme: {
                 background: '#1e1e1e',
                 padding: '0',

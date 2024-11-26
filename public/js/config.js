@@ -6,7 +6,7 @@ const API_CONFIG = {
       status: "/status",
       send: "/send",
       wallets: "/wallets",
-      addWallet: "/AddWallet",
+      addWallet: "/add-wallet",
       mempool: "/mempool",
       balances: "/balance"
     },
