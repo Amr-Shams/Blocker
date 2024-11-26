@@ -11,6 +11,7 @@ Blocker is a blockchain network debugger that allows you to start and manage ful
 - Interactive terminal for debugging
 
 ## Getting Started
+https://github.com/user-attachments/assets/afa6d305-dff6-4758-9e76-5884996d9532
 
 ### Prerequisites
 
