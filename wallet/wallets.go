@@ -38,7 +38,7 @@ func Deserialize(data []byte) *Wallets {
 func Save(ws *Wallets, nodeId string) {
 	content := ws.Serialize()
 	StoreFile := fmt.Sprintf(StoreFile, nodeId)
-	f, err := os.OpenFile(StoreFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(StoreFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 	util.Handle(err)
 	if _, err := f.Write(content); err != nil {
 		f.Close()
